@@ -35,9 +35,11 @@ std::ostream& operator<<(std::ostream& os, const Transaction& trans) {
 std::istream& operator>>(std::istream& is, Transaction& trans) {
     std::unordered_set<std::string> write_types = {"WRITE", "write", "P_MEM_WR",
                                                    "BOFF"};
+    std::unordered_set<std::string> pim_types = {"PIM"};
     std::string mem_op;
     is >> std::hex >> trans.addr >> mem_op >> std::dec >> trans.added_cycle;
     trans.is_write = write_types.count(mem_op) == 1;
+    trans.is_pim = pim_types.count(mem_op) == 1;
     return is;
 }
 

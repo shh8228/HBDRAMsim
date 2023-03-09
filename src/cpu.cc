@@ -78,10 +78,14 @@ void TraceBasedCPU::ClockTick() {
             trace_file_ >> trans_;
         }
         if (trans_.added_cycle <= clk_) {
-            get_next_ = memory_system_.WillAcceptTransaction(trans_.addr,
-                                                             trans_.is_write);
-            if (get_next_) {
-                memory_system_.AddTransaction(trans_.addr, trans_.is_write);
+            if (!trans_.is_pim) {
+				get_next_ = memory_system_.WillAcceptTransaction(trans_.addr,
+                	                                             trans_.is_write);
+				if (get_next_) memory_system_.AddTransaction(trans_.addr, trans_.is_write);
+			}
+            else {
+				get_next_ = true;
+                if (get_next_) memory_system_.AddTransaction(trans_.addr);
             }
         }
     }

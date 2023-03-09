@@ -115,11 +115,13 @@ struct Transaction {
         : addr(tran.addr),
           added_cycle(tran.added_cycle),
           complete_cycle(tran.complete_cycle),
-          is_write(tran.is_write) {}
+          is_write(tran.is_write)
+		  is_pim(tran.is_pim) {}
+
     uint64_t addr;
     uint64_t added_cycle;
     uint64_t complete_cycle;
-    bool is_write;
+    bool is_write, is_pim;
 
     friend std::ostream& operator<<(std::ostream& os, const Transaction& trans);
     friend std::istream& operator>>(std::istream& is, Transaction& trans);
