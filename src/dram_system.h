@@ -28,8 +28,10 @@ class BaseDRAMSystem {
     void PrintStats();
     void ResetStats();
 
+    virtual bool WillAcceptTransaction() const = 0;
     virtual bool WillAcceptTransaction(uint64_t hex_addr,
                                        bool is_write) const = 0;
+    virtual bool AddTransaction(uint64_t hex_addr) = 0;
     virtual bool AddTransaction(uint64_t hex_addr, bool is_write) = 0;
     virtual void ClockTick() = 0;
     int GetChannel(uint64_t hex_addr) const;
@@ -44,6 +46,9 @@ class BaseDRAMSystem {
     Timing timing_;
     uint64_t parallel_cycles_;
     uint64_t serial_cycles_;
+    vector<Transaction *> pim_trans_queue_;
+    uint64_t pim_trans_queue_depth_ = 32; //TODO
+
 
 #ifdef THERMAL
     ThermalCalculator thermal_calc_;
@@ -64,7 +69,9 @@ class JedecDRAMSystem : public BaseDRAMSystem {
                     std::function<void(uint64_t)> read_callback,
                     std::function<void(uint64_t)> write_callback);
     ~JedecDRAMSystem();
+    bool WillAcceptTransaction() const override;
     bool WillAcceptTransaction(uint64_t hex_addr, bool is_write) const override;
+    bool AddTransaction(uint64_t hex_addr) override;
     bool AddTransaction(uint64_t hex_addr, bool is_write) override;
     void ClockTick() override;
 };
@@ -78,6 +85,10 @@ class IdealDRAMSystem : public BaseDRAMSystem {
                     std::function<void(uint64_t)> read_callback,
                     std::function<void(uint64_t)> write_callback);
     ~IdealDRAMSystem();
+    bool WillAcceptTransaction() const override {
+        return true;
+    };
+    bool AddTransaction(uint64_t hex_addr) override;
     bool WillAcceptTransaction(uint64_t hex_addr,
                                bool is_write) const override {
         return true;

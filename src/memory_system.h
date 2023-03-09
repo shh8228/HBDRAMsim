@@ -27,6 +27,8 @@ class MemorySystem {
     void PrintStats() const;
     void ResetStats();
 
+    bool WillAcceptTransaction() const;
+    bool AddTransaction(uint64_t hex_addr);
     bool WillAcceptTransaction(uint64_t hex_addr, bool is_write) const;
     bool AddTransaction(uint64_t hex_addr, bool is_write);
 

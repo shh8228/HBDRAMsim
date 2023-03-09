@@ -84,7 +84,7 @@ void TraceBasedCPU::ClockTick() {
 				if (get_next_) memory_system_.AddTransaction(trans_.addr, trans_.is_write);
 			}
             else {
-				get_next_ = true;
+				get_next_ = memory_system_.WillAcceptTransaction(trans_.is_pim);
                 if (get_next_) memory_system_.AddTransaction(trans_.addr);
             }
         }

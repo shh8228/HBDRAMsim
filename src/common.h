@@ -122,6 +122,10 @@ struct Transaction {
     uint64_t added_cycle;
     uint64_t complete_cycle;
     bool is_write, is_pim;
+    uint64_t col_num;
+    bool active;
+    std::vector<uint64_t> targetBanks;
+    std::vector<uint64_t> targetChans;
 
     friend std::ostream& operator<<(std::ostream& os, const Transaction& trans);
     friend std::istream& operator>>(std::istream& is, Transaction& trans);
