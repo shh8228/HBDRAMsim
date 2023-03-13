@@ -62,6 +62,10 @@ std::pair<uint64_t, int> Controller::ReturnDoneTrans(uint64_t clk) {
     return std::make_pair(-1, -1);
 }
 
+Command GetReadyCommand(const Command& cmd, uint64_t clk) const {
+    return channel_state_.GetReadyCommand(cmd, clk);
+}
+
 void Controller::ClockTick() {
     // update refresh counter
     refresh_.ClockTick();

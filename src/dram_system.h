@@ -46,7 +46,8 @@ class BaseDRAMSystem {
     Timing timing_;
     uint64_t parallel_cycles_;
     uint64_t serial_cycles_;
-    vector<Transaction *> pim_trans_queue_;
+    vector<Transaction> pim_trans_queue_;
+    vector<vector<bool>> bank_occupancy_;
     uint64_t pim_trans_queue_depth_ = 32; //TODO
 
 

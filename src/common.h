@@ -111,6 +111,10 @@ struct Transaction {
           added_cycle(0),
           complete_cycle(0),
           is_write(is_write) {}
+    Transaction(uint64_t addr)
+        : addr(addr),
+          added_cycle(0),
+          complete_cycle(0) {}
     Transaction(const Transaction& tran)
         : addr(tran.addr),
           added_cycle(tran.added_cycle),
@@ -126,6 +130,7 @@ struct Transaction {
     bool active;
     std::vector<uint64_t> targetBanks;
     std::vector<uint64_t> targetChans;
+    uint64_t row_addr;
 
     friend std::ostream& operator<<(std::ostream& os, const Transaction& trans);
     friend std::istream& operator>>(std::istream& is, Transaction& trans);
