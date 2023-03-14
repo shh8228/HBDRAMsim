@@ -146,11 +146,8 @@ bool JedecDRAMSystem::AddTransaction(uint64_t hex_addr) {
         trans.is_pim = true;
 
         uint64_t tempA, tempB, address;
-        unsigned vertical_cuts;
-        unsigned horizontal_cuts;
-        address = trans->address;
+        address = trans.addr;
 
-		unsigned newTransactionChan, newTransactionRank, newTransactionBank, newTransactionRow, newTransactionColumn;
         unsigned tensor, confTypeV, isConfiguredV, confTypeH, isConfiguredH, rowAddress;
 
         tempA = address;
@@ -181,10 +178,10 @@ bool JedecDRAMSystem::AddTransaction(uint64_t hex_addr) {
         rowAddress = address;
 
         size_t numChunksV = std::pow(2, confTypeV); // 2 == NUM_BANKS / max_num_chunks
-        int chunk_sizeV = NUM_BANKS / numChunksV;
+        int chunk_sizeV = (config_.ranks * config_.bankgroups * config_.banks) / numChunksV;
 
         size_t numChunksH = std::pow(2, confTypeH);
-        int chunk_sizeH = NUM_CHANS / numChunksH;
+        int chunk_sizeH = config_.channels / numChunksH;
 
 
         for (size_t i=0; i<numChunksV; i++)
@@ -194,18 +191,18 @@ bool JedecDRAMSystem::AddTransaction(uint64_t hex_addr) {
                 if (tensor == 0) // input
                 {
 
-                    trans->targetBanks.push_back(i*chunk_sizeV);
+                    trans.targetBanks.push_back(i*chunk_sizeV);
                 }
 
                 else if (tensor == 1) // weight
                 {
                     for (size_t j=0; j<chunk_sizeV; j++)
-                        trans->targetBanks.push_back(i*chunk_sizeV + j);
+                        trans.targetBanks.push_back(i*chunk_sizeV + j);
                 }
 
                 else if (tensor == 2) // output
                 {
-                    trans->targetBanks.push_back(i*chunk_sizeV + 1);
+                    trans.targetBanks.push_back(i*chunk_sizeV + 1);
                 }
             }
         }
@@ -269,39 +266,64 @@ void JedecDRAMSystem::ClockTick() {
     int tensor_bitwidth = 3;
 
     if (!pim_trans_queue_.empty()) {
-        for (auto it = pim_trans_queue_.begin(); it != pim_trans_queue_.end(); it++) {
+        for (auto& it : pim_trans_queue_) {
             if (it.active && it.col_num >= 0) {
                 uint64_t tensor = it.addr ^ ((it.addr >> tensor_bitwidth) << tensor_bitwidth);
                 if (tensor == 0 && weight_fetching) {
-                    assert(col_num == 0)
+                    assert(col_num == 0);
                     // not send cmd
                 }
                 else if (tensor == 1 && input_sending) {
-                    assert(col_num == 0)
+                    assert(col_num == 0);
                     // not send cmd
                 }
                 else {
+
                     CommandType type;
-                    if (!active) type = ACTIVATE;
-                    else if (col_num == 32) type = PRECHARGE;
-                    else if (tensor == 2) type = WRITE;
-                    else type = READ;
+                    if (!it.active) {
+                        type = CommandType::ACTIVATE;
+                        assert(it.col_num == 0);
+                    }
+                    else if (it.col_num == 32) {
+                        type = CommandType::PRECHARGE;
+                    }
+                    else if (tensor == 2) {
+                        type = CommandType::WRITE;
+                    }
+                    else {
+                        type = CommandType::READ;
+                    }
 
-                    if (isIssuable_pim(trans, type)) {
+                    if (isIssuable_pim(it, type)) {
 
-                        for (auto& itC : trans.targetChans) {
-                            for (auto& itB : trans.targetBanks) {
+                        switch (type) {
+                            case CommandType::ACTIVATE:
+                                break;
+                            case CommandType::PRECHARGE:
+                                it.col_num = 0;
+                                break;
+                            case CommandType::WRITE:
+                            case CommandType::READ:
+                                it.col_num++;
+                                break;
+                            default:
+                                std::cout << (int) type << it << std::endl;
+                                AbruptExit(__FILE__, __LINE__);
+                        }
+
+                        for (auto& itC : it.targetChans) {
+                            for (auto& itB : it.targetBanks) {
                                 bank_occupancy_[itC][itB] = true;
 
                                 // TODO Address scheme
-                                Address addr = Address((int) itC, 0, 0, (int) itB, (int) trans.row_addr,  (int) trans.col_num);
-                                Command cmd = Command(type, addr, trans.addr);
+                                Address addr = Address((int) itC, 0, 0, (int) itB, (int) it.row_addr,  (int) it.col_num);
+                                Command cmd = Command(type, addr, it.addr);
                                 Command ready_cmd = ctrls_[itC]->GetReadyCommand(cmd, clk_);
 
                                 assert(cmd.cmd_type == ready_cmd.cmd_type);
                                 assert(ready_cmd.IsValid());
 
-                                ctrls_[itC]->pim_cmds.push_back(ready_cmd);
+                                ctrls_[itC]->pim_cmds_.push_back(ready_cmd);
                             }
                         }
                     }
@@ -324,7 +346,6 @@ void JedecDRAMSystem::ClockTick() {
 }
 
 bool JedecDRAMSystem::isIssuable_pim(Transaction trans, CommandType type) {
-    bool issuable = true;
     for (auto& itC : trans.targetChans) {
         // We do not need to add more loops here since only these two dimensions are orthogonal to each other
         for (auto& itB : trans.targetBanks) {

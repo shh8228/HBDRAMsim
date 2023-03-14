@@ -49,7 +49,7 @@ enum class HMCReqType {
     INC8,  // read, return(the original), then write
     P_INC8, // read, return(the original), then posted write
     // boolean op on imm operand and mem operand, read update write
-    XOR16,  
+    XOR16,
     OR16,
     NOR16,
     AND16,
@@ -114,6 +114,8 @@ class HMCMemorySystem : public BaseDRAMSystem {
     void ClockTick() override;
 
     // had to have 3 insert interfaces cuz HMC is so different...
+    bool WillAcceptTransaction() const override {return true;};
+    bool AddTransaction(uint64_t hex_addr) override {return true;};
     bool WillAcceptTransaction(uint64_t hex_addr, bool is_write) const override;
     bool AddTransaction(uint64_t hex_addr, bool is_write) override;
     bool InsertReqToLink(HMCRequest* req, int link);

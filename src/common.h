@@ -119,13 +119,14 @@ struct Transaction {
         : addr(tran.addr),
           added_cycle(tran.added_cycle),
           complete_cycle(tran.complete_cycle),
-          is_write(tran.is_write)
+          is_write(tran.is_write),
 		  is_pim(tran.is_pim) {}
 
     uint64_t addr;
     uint64_t added_cycle;
     uint64_t complete_cycle;
-    bool is_write, is_pim;
+    bool is_write;
+    bool is_pim = false;
     uint64_t col_num;
     bool active;
     std::vector<uint64_t> targetBanks;

@@ -62,7 +62,7 @@ std::pair<uint64_t, int> Controller::ReturnDoneTrans(uint64_t clk) {
     return std::make_pair(-1, -1);
 }
 
-Command GetReadyCommand(const Command& cmd, uint64_t clk) const {
+Command Controller::GetReadyCommand(Command& cmd, uint64_t clk) {
     return channel_state_.GetReadyCommand(cmd, clk);
 }
 
@@ -81,20 +81,32 @@ void Controller::ClockTick() {
         cmd = cmd_queue_.GetCommandToIssue();
     }
 
-    if (cmd.IsValid()) {
-        IssueCommand(cmd);
-        cmd_issued = true;
+    if (pim_cmds_.empty()) {
 
-        if (config_.enable_hbm_dual_cmd) {
-            auto second_cmd = cmd_queue_.GetCommandToIssue();
-            if (second_cmd.IsValid()) {
-                if (second_cmd.IsReadWrite() != cmd.IsReadWrite()) {
-                    IssueCommand(second_cmd);
-                    simple_stats_.Increment("hbm_dual_cmds");
+        if (cmd.IsValid()) {
+            IssueCommand(cmd);
+            cmd_issued = true;
+
+            if (config_.enable_hbm_dual_cmd) {
+                auto second_cmd = cmd_queue_.GetCommandToIssue();
+                if (second_cmd.IsValid()) {
+                    if (second_cmd.IsReadWrite() != cmd.IsReadWrite()) {
+                        IssueCommand(second_cmd);
+                        simple_stats_.Increment("hbm_dual_cmds");
+                    }
                 }
             }
         }
     }
+    else {
+        cmd_issued = true;
+        for (auto it = pim_cmds_.begin(); it != pim_cmds_.end(); it++) {
+            IssueCommand(*it);
+            pim_cmds_.erase(it);
+        }
+    }
+
+
 
     // power updates pt 1
     for (int i = 0; i < config_.ranks; i++) {

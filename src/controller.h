@@ -36,11 +36,11 @@ class Controller {
     void PrintFinalStats();
     void ResetStats() { simple_stats_.Reset(); }
     std::pair<uint64_t, int> ReturnDoneTrans(uint64_t clock);
-    Command GetReadyCommand(const Command& cmd, uint64_t clk) const;
+    Command GetReadyCommand(Command& cmd, uint64_t clk);
 
     int channel_id_;
 
-    std::vector<Command> pim_cmds;
+    std::vector<Command> pim_cmds_;
 
    private:
     uint64_t clk_;
