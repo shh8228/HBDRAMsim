@@ -27,7 +27,7 @@ std::ostream& operator<<(std::ostream& os, const Command& cmd) {
 }
 
 std::ostream& operator<<(std::ostream& os, const Transaction& trans) {
-    const std::string trans_type = trans.is_write ? "WRITE" : "READ";
+    const std::string trans_type = trans.is_pim ? "PIM" : trans.is_write ? "WRITE" : "READ";
     os << fmt::format("{:<30} {:>8}", trans.addr, trans_type);
     return os;
 }

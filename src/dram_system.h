@@ -75,7 +75,7 @@ class JedecDRAMSystem : public BaseDRAMSystem {
     bool AddTransaction(uint64_t hex_addr) override;
     bool AddTransaction(uint64_t hex_addr, bool is_write) override;
     void ClockTick() override;
-    bool isIssuable_pim(Transaction trans, CommandType type);
+    Command GetReadyCommandPIM(Transaction trans, CommandType type);
 };
 
 // Model a memorysystem with an infinite bandwidth and a fixed latency (possibly

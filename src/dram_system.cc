@@ -144,6 +144,8 @@ bool JedecDRAMSystem::AddTransaction(uint64_t hex_addr) {
     if (ok) {
         Transaction trans = Transaction(hex_addr);
         trans.is_pim = true;
+        trans.col_num = 0;
+        trans.active = false;
 
         uint64_t tempA, tempB, address;
         address = trans.addr;
@@ -264,72 +266,93 @@ void JedecDRAMSystem::ClockTick() {
     bool weight_fetching = false;
     bool input_sending = false;
     int tensor_bitwidth = 3;
+    bool input_trans_found = false;
+    bool weight_trans_found = false;
+    bool output_trans_found = false;
 
     if (!pim_trans_queue_.empty()) {
         for (auto& it : pim_trans_queue_) {
-            if (it.active && it.col_num >= 0) {
-                uint64_t tensor = it.addr ^ ((it.addr >> tensor_bitwidth) << tensor_bitwidth);
-                if (tensor == 0 && weight_fetching) {
-                    assert(col_num == 0);
-                    // not send cmd
-                }
-                else if (tensor == 1 && input_sending) {
-                    assert(col_num == 0);
-                    // not send cmd
-                }
-                else {
+            uint64_t tensor = it.addr ^ ((it.addr >> tensor_bitwidth) << tensor_bitwidth);
 
-                    CommandType type;
-                    if (!it.active) {
-                        type = CommandType::ACTIVATE;
-                        assert(it.col_num == 0);
-                    }
-                    else if (it.col_num == 32) {
-                        type = CommandType::PRECHARGE;
-                    }
-                    else if (tensor == 2) {
-                        type = CommandType::WRITE;
-                    }
-                    else {
-                        type = CommandType::READ;
-                    }
+            bool issuable = true;
 
-                    if (isIssuable_pim(it, type)) {
-
-                        switch (type) {
-                            case CommandType::ACTIVATE:
-                                break;
-                            case CommandType::PRECHARGE:
-                                it.col_num = 0;
-                                break;
-                            case CommandType::WRITE:
-                            case CommandType::READ:
-                                it.col_num++;
-                                break;
-                            default:
-                                std::cout << (int) type << it << std::endl;
-                                AbruptExit(__FILE__, __LINE__);
-                        }
-
-                        for (auto& itC : it.targetChans) {
-                            for (auto& itB : it.targetBanks) {
-                                bank_occupancy_[itC][itB] = true;
-
-                                // TODO Address scheme
-                                Address addr = Address((int) itC, 0, 0, (int) itB, (int) it.row_addr,  (int) it.col_num);
-                                Command cmd = Command(type, addr, it.addr);
-                                Command ready_cmd = ctrls_[itC]->GetReadyCommand(cmd, clk_);
-
-                                assert(cmd.cmd_type == ready_cmd.cmd_type);
-                                assert(ready_cmd.IsValid());
-
-                                ctrls_[itC]->pim_cmds_.push_back(ready_cmd);
-                            }
-                        }
-                    }
-                }
-
+            // Input, Weight Dependency
+            if (tensor == 0 && weight_fetching) {
+                assert(col_num == 0);
+                issuable = false; //not send cmd?
             }
+            else if (tensor == 1 && input_sending) {
+                assert(col_num == 0);
+                issuable = false; // not send cmd?
+            }
+
+            // For bank interleaving
+            bool ex_pending = (input_trans_found && tensor == 0) ||
+                              (weight_trans_found && tensor == 1) ||
+                              (output_trans_found && tensor == 2);
+
+            if (tensor == 0) input_trans_found = true;
+            else if (tensor == 1) weight_trans_found = true;
+            else output_trans_found = true;
+
+
+            // TODO: R/W_PRECHARGE when col_num is 31 for energy saving
+            CommandType type;
+            if (tensor == 2) {
+                type = CommandType::WRITE;
+            }
+            else {
+                type = CommandType::READ;
+            }
+
+            Command ready_cmd_temp = GetReadyCommandPIM(it, type);
+
+            bool ReadOrWrite = ready_cmd_temp.cmd_type == type;
+
+            // TODO: more restrictive false to give tighter timing for energy saving
+            if (ex_pending && ReadOrWrite) issuable = false;
+
+            if (ready_cmd_temp.IsValid && issuable) {
+
+                if (ReadOrWrite) {
+                    it.col_num++;
+                }
+
+                for (auto& itC : it.targetChans) {
+                    for (auto& itB : it.targetBanks) {
+
+                        // TODO Address scheme
+                        Address addr = Address((int) itC, 0, 0, (int) itB, (int) it.row_addr,  (int) it.col_num);
+
+                        Command cmd = Command(type, addr, it.addr);
+                        Command ready_cmd = ctrls_[itC]->GetReadyCommand(cmd, clk_);
+                        assert(ready_cmd.IsValid());
+                        assert(ready_cmd.cmd_type == ready_cmd_temp.cmd_type);
+
+
+                        if (ready_cmd_temp.cmd_type == CommandType::ACTIVATE)
+                            bank_occupancy_[itC][itB] = true;
+                        else
+                            assert(bank_occupancy_[itC][itB]);
+
+                        ctrls_[itC]->pim_cmds_.push_back(ready_cmd);
+                    }
+                }
+            }
+
+        }
+        // bank_occupancy_ free at last R/W
+        for (auto it = pim_trans_queue_.begin(); it != pim_trans_queue_.end(); ) {
+            if (it->col_num == 32) {
+                for (auto& itC : it.targetChans) {
+                    for (auto& itB : it.targetBanks) {
+                        bank_occupancy_[itC][itB] = false;
+                    }
+                }
+                it = pim_trans_queue_.erase(it);
+            }
+            else
+                it++;
         }
 
     }
@@ -345,7 +368,9 @@ void JedecDRAMSystem::ClockTick() {
     return;
 }
 
-bool JedecDRAMSystem::isIssuable_pim(Transaction trans, CommandType type) {
+Command JedecDRAMSystem::GetReadyCommandPIM(Transaction trans, CommandType type) {
+    bool first = true;
+    bool sameornot = false;
     for (auto& itC : trans.targetChans) {
         // We do not need to add more loops here since only these two dimensions are orthogonal to each other
         for (auto& itB : trans.targetBanks) {
@@ -353,10 +378,18 @@ bool JedecDRAMSystem::isIssuable_pim(Transaction trans, CommandType type) {
             Address addr = Address((int) itC, 0, 0, (int) itB, (int) trans.row_addr,  (int) trans.col_num);
             Command cmd = Command(type, addr, trans.addr);
             Command ready_cmd = ctrls_[itC]->GetReadyCommand(cmd, clk_);
-            if (!ready_cmd.IsValid() || bank_occupancy_[itC][itB]) return false;
+            if (first) {
+                first = false;
+                sameornot = cmd.cmd_type == ready_cmd.cmd_type;
+            }
+            else {
+                if (sameornot != (cmd.cmd_type == ready_cmd.cmd_type))
+                    return Command();
+            }
+            if (!ready_cmd.IsValid() || bank_occupancy_[itC][itB]) return Command();
         }
     }
-    return true;
+    return ready_cmd;
 }
 
 

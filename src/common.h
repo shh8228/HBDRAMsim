@@ -128,7 +128,6 @@ struct Transaction {
     bool is_write;
     bool is_pim = false;
     uint64_t col_num;
-    bool active;
     std::vector<uint64_t> targetBanks;
     std::vector<uint64_t> targetChans;
     uint64_t row_addr;

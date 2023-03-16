@@ -100,9 +100,9 @@ void Controller::ClockTick() {
     }
     else {
         cmd_issued = true;
-        for (auto it = pim_cmds_.begin(); it != pim_cmds_.end(); it++) {
+        for (auto it = pim_cmds_.begin(); it != pim_cmds_.end(); ) {
             IssueCommand(*it);
-            pim_cmds_.erase(it);
+            it = pim_cmds_.erase(it);
         }
     }
 
