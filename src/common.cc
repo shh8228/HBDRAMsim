@@ -3,6 +3,7 @@
 #include <sstream>
 #include <unordered_set>
 #include <sys/stat.h>
+#include <math.h>
 
 namespace dramsim3 {
 
@@ -38,8 +39,11 @@ std::istream& operator>>(std::istream& is, Transaction& trans) {
     std::unordered_set<std::string> pim_types = {"PIM"};
     std::string mem_op;
     is >> std::hex >> trans.addr >> mem_op >> std::dec >> trans.added_cycle;
+    std::cout<<"Transaction being read: "<<std::hex<<trans.addr<<'\t'<<mem_op<<std::dec<<'\t'<<trans.added_cycle<<'\n';
     trans.is_write = write_types.count(mem_op) == 1;
     trans.is_pim = pim_types.count(mem_op) == 1;
+
+
     return is;
 }
 

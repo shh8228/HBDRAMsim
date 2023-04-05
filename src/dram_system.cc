@@ -1,5 +1,4 @@
 #include "dram_system.h"
-
 #include <assert.h>
 
 namespace dramsim3 {
@@ -21,13 +20,6 @@ BaseDRAMSystem::BaseDRAMSystem(Config &config, const std::string &output_dir,
 #endif  // THERMAL
       clk_(0) {
     total_channels_ += config_.channels;
-
-    int banks =  config_.ranks * config_.bankgroups * config_.banks_per_group;
-    for (auto i = 0; i < config_.channels; i++) {
-        auto chan_occupancy =
-            std::vector<bool>(banks, false);
-        bank_occupancy_.push_back(chan_occupancy);
-    }
 
 #ifdef ADDR_TRACE
     std::string addr_trace_name = config_.output_prefix + "addr.trace";
@@ -118,6 +110,13 @@ JedecDRAMSystem::JedecDRAMSystem(Config &config, const std::string &output_dir,
         ctrls_.push_back(new Controller(i, config_, timing_));
 #endif  // THERMAL
     }
+
+    int banks =  config_.ranks * config_.bankgroups * config_.banks_per_group;
+    for (auto i = 0; i < config_.channels; i++) {
+        auto chan_occupancy =
+            std::vector<bool>(banks, false);
+        bank_occupancy_.push_back(chan_occupancy);
+    }
 }
 
 JedecDRAMSystem::~JedecDRAMSystem() {
@@ -143,74 +142,6 @@ bool JedecDRAMSystem::AddTransaction(uint64_t hex_addr) {
     assert(ok);
     if (ok) {
         Transaction trans = Transaction(hex_addr);
-        trans.is_pim = true;
-        trans.col_num = 0;
-        trans.active = false;
-
-        uint64_t tempA, tempB, address;
-        address = trans.addr;
-
-        unsigned tensor, confTypeV, isConfiguredV, confTypeH, isConfiguredH, rowAddress;
-
-        tempA = address;
-        address = address >> 3;
-        tempB = address << 3;
-        tensor = tempA ^ tempB;
-
-        tempA = address;
-        address = address >> 2;
-        tempB = address << 2;
-        confTypeV = tempA ^ tempB;
-
-        tempA = address;
-        address = address >> 8;
-        tempB = address << 8;
-        isConfiguredV = tempA ^ tempB;
-
-        tempA = address;
-        address = address >> 1;
-        tempB = address << 1;
-        confTypeH = tempA ^ tempB;
-
-        tempA = address;
-        address = address >> 2;
-        tempB = address << 2;
-        isConfiguredH = tempA ^ tempB;
-
-        rowAddress = address;
-
-        size_t numChunksV = std::pow(2, confTypeV); // 2 == NUM_BANKS / max_num_chunks
-        int chunk_sizeV = (config_.ranks * config_.bankgroups * config_.banks) / numChunksV;
-
-        size_t numChunksH = std::pow(2, confTypeH);
-        int chunk_sizeH = config_.channels / numChunksH;
-
-
-        for (size_t i=0; i<numChunksV; i++)
-        {
-            if (isConfiguredV & (1 << i))
-            {
-                if (tensor == 0) // input
-                {
-
-                    trans.targetBanks.push_back(i*chunk_sizeV);
-                }
-
-                else if (tensor == 1) // weight
-                {
-                    for (size_t j=0; j<chunk_sizeV; j++)
-                        trans.targetBanks.push_back(i*chunk_sizeV + j);
-                }
-
-                else if (tensor == 2) // output
-                {
-                    trans.targetBanks.push_back(i*chunk_sizeV + 1);
-                }
-            }
-        }
-
-        trans.row_addr = rowAddress;
-
         pim_trans_queue_.push_back(trans);
 
     }
@@ -258,9 +189,15 @@ void JedecDRAMSystem::ClockTick() {
         }
     }
 
-    //TODO refresh check
     //lookup refresh_ in each controller to check refresh countdown
     //if countdown is lower than pim delay, pause issuing pim commands until refresh is done over all ranks
+    bool wait_refresh = false;
+    for (size_t i=0; i<ctrls_.size(); i++) {
+        if (ctrls_[i]->pim_refresh_coming()) {
+            wait_refresh = true;
+            std::cout<<clk_ << "\tWait Refresh\n";
+        }
+    }
 
     //TODO npu signals
     bool weight_fetching = false;
@@ -270,19 +207,34 @@ void JedecDRAMSystem::ClockTick() {
     bool weight_trans_found = false;
     bool output_trans_found = false;
 
-    if (!pim_trans_queue_.empty()) {
+
+    if (pim_trans_queue_.empty()) std::cout<<clk_ << "\tEmpty PIM trans queue\n";
+
+    if (!pim_trans_queue_.empty() && !wait_refresh) {
+        std::cout<<clk_<<"\tTransaction Queue size: " << pim_trans_queue_.size() << '\n';
         for (auto& it : pim_trans_queue_) {
+            if (!it.active) {
+                std::cout<<clk_<<"\tTransaction Inactive: " << it << "\t" << it.col_num << "\t" << it.end_col << '\n';
+                continue;
+            }
+            std::cout<<clk_<<"\tTransaction Active: " << it << "\t" << it.col_num << "\t" << it.end_col << '\n';
+
             uint64_t tensor = it.addr ^ ((it.addr >> tensor_bitwidth) << tensor_bitwidth);
+            bool is_config = false;
+
+
 
             bool issuable = true;
-
+            std::cout<<(int)it.col_num<<": col_num\n";
             // Input, Weight Dependency
             if (tensor == 0 && weight_fetching) {
-                assert(col_num == 0);
+                std::cout<<clk_<<"\tWeight Dependency: "<<it<<'\n';
+                assert(it.col_num == 0);
                 issuable = false; //not send cmd?
             }
             else if (tensor == 1 && input_sending) {
-                assert(col_num == 0);
+                std::cout<<clk_<<"\tInput Dependency: "<<it<<'\n';
+
                 issuable = false; // not send cmd?
             }
 
@@ -291,6 +243,7 @@ void JedecDRAMSystem::ClockTick() {
                               (weight_trans_found && tensor == 1) ||
                               (output_trans_found && tensor == 2);
 
+            // TODO when PIM_E
             if (tensor == 0) input_trans_found = true;
             else if (tensor == 1) weight_trans_found = true;
             else output_trans_found = true;
@@ -310,10 +263,14 @@ void JedecDRAMSystem::ClockTick() {
             bool ReadOrWrite = ready_cmd_temp.cmd_type == type;
 
             // TODO: more restrictive false to give tighter timing for energy saving
-            if (ex_pending && ReadOrWrite) issuable = false;
+            if (ex_pending && ReadOrWrite) {
+                issuable = false;
+                std::cout<<clk_<<"\tintra Dependency: "<<it<<'\n';
+            }
 
-            if (ready_cmd_temp.IsValid && issuable) {
-
+            if (!ready_cmd_temp.IsValid()) std::cout<<clk_<<"\tNot To be issued: " << ready_cmd_temp << '\n';
+            if (ready_cmd_temp.IsValid() && issuable) {
+                std::cout<<clk_<<"\tTo be issued: "<<ready_cmd_temp<<'\n';
                 if (ReadOrWrite) {
                     it.col_num++;
                 }
@@ -343,12 +300,14 @@ void JedecDRAMSystem::ClockTick() {
         }
         // bank_occupancy_ free at last R/W
         for (auto it = pim_trans_queue_.begin(); it != pim_trans_queue_.end(); ) {
-            if (it->col_num == 32) {
-                for (auto& itC : it.targetChans) {
-                    for (auto& itB : it.targetBanks) {
+            if (it->active && it->col_num == it->end_col) {
+                std::cout<<clk_<<"\tTransaction clean?: " << *it << "\t" << it->col_num << "\t" << it->end_col << '\n';
+                for (auto& itC : it->targetChans) {
+                    for (auto& itB : it->targetBanks) {
                         bank_occupancy_[itC][itB] = false;
                     }
                 }
+                std::cout<<clk_<<"\tErase transaction "<<*it<<'\n';
                 it = pim_trans_queue_.erase(it);
             }
             else
@@ -359,6 +318,106 @@ void JedecDRAMSystem::ClockTick() {
 
     for (size_t i = 0; i < ctrls_.size(); i++) {
         ctrls_[i]->ClockTick();
+    }
+
+    // Schedule PIM Transactions
+    for (auto it = pim_trans_queue_.begin(); it != pim_trans_queue_.end(); it++) {
+        if (it->active) continue;
+
+        uint64_t tempA, tempB, address;
+        address = it->addr;
+
+        unsigned tensor, confTypeV, isConfiguredV, confTypeH, isConfiguredH, rowAddress, weightOffset;
+
+        tempA = address;
+        address = address >> 3;
+        tempB = address << 3;
+        tensor = tempA ^ tempB;
+
+        tempA = address;
+        address = address >> 2;
+        tempB = address << 2;
+        confTypeV = tempA ^ tempB;
+
+        tempA = address;
+        address = address >> 8;
+        tempB = address << 8;
+        isConfiguredV = tempA ^ tempB;
+
+        tempA = address;
+        address = address >> 1;
+        tempB = address << 1;
+        confTypeH = tempA ^ tempB;
+
+        tempA = address;
+        address = address >> 2;
+        tempB = address << 2;
+        isConfiguredH = tempA ^ tempB;
+
+        tempA = address;
+        address = address >> 1;
+        tempB = address << 1;
+        weightOffset = tempA ^ tempB;
+
+        rowAddress = address;
+
+        size_t numChunksV = std::pow(2, confTypeV); // 2 == NUM_BANKS / max_num_chunks
+        int chunk_sizeV = (config_.ranks * config_.banks) / numChunksV;
+
+        size_t numChunksH = std::pow(2, confTypeH);
+        int chunk_sizeH = config_.channels / numChunksH;
+
+        for (size_t i=0; i<numChunksV; i++)
+        {
+            if (isConfiguredV & (1 << i))
+            {
+                std::cout<<"targetBanks added\n";
+                if (tensor == 0) // input
+                {
+                    it->targetBanks.push_back(i*chunk_sizeV);
+                }
+
+                else if (tensor == 1) // weight
+                {
+                    for (size_t j=0; j<chunk_sizeV/2; j++)
+                        it->targetBanks.push_back(i*chunk_sizeV + 2*j); // even banks
+                }
+
+                else if (tensor == 2) // output
+                {
+                    it->targetBanks.push_back(i*chunk_sizeV + 1);
+                }
+            }
+        }
+
+        for (size_t i=0; i<numChunksH; i++)
+        {
+            if (isConfiguredH & (1 << i))
+            {
+                std::cout<<"targetChans added\n";
+                for (size_t j=0; j<chunk_sizeH; j++){
+                        it->targetChans.push_back(i*chunk_sizeH + j); // even banks
+                }
+            }
+        }
+
+        int w_reads_per_tile = 128/((config_.ranks*config_.bankgroups*config_.banks)/2); // 16 when peX==128 and bandX==16
+
+        int col_num;
+        if (tensor == 1 && w_reads_per_tile < 32)
+            col_num = weightOffset * w_reads_per_tile;
+        else col_num = 0;
+
+        int end_col = (tensor != 1 || w_reads_per_tile > 32) ? 32: (weightOffset+1) * w_reads_per_tile;
+        std::cout<<end_col<<": col_end\n";
+
+        it->is_pim = true;
+        it->col_num = col_num;
+        it->row_addr = rowAddress;
+        it->end_col = end_col;
+        it->active = true;
+
+        break; // activate one transaction per cycle
     }
     clk_++;
 
@@ -371,22 +430,30 @@ void JedecDRAMSystem::ClockTick() {
 Command JedecDRAMSystem::GetReadyCommandPIM(Transaction trans, CommandType type) {
     bool first = true;
     bool sameornot = false;
+    Command ready_cmd = Command();
+    if (trans.targetChans.empty() || trans.targetBanks.empty()) std::cout<<"empty target Chans, Banks\t"<<trans<<'\n';
     for (auto& itC : trans.targetChans) {
         // We do not need to add more loops here since only these two dimensions are orthogonal to each other
         for (auto& itB : trans.targetBanks) {
             // TODO how to set rank, bankgroup, and column address (device width)?
             Address addr = Address((int) itC, 0, 0, (int) itB, (int) trans.row_addr,  (int) trans.col_num);
             Command cmd = Command(type, addr, trans.addr);
-            Command ready_cmd = ctrls_[itC]->GetReadyCommand(cmd, clk_);
+            std::cout<<clk_<<"\tWant To issue: " << cmd << '\n';
+            ready_cmd = ctrls_[itC]->GetReadyCommand(cmd, clk_);
             if (first) {
                 first = false;
                 sameornot = cmd.cmd_type == ready_cmd.cmd_type;
             }
             else {
-                if (sameornot != (cmd.cmd_type == ready_cmd.cmd_type))
+                if (sameornot != (cmd.cmd_type == ready_cmd.cmd_type)) {
+                    std::cout <<clk_<< "\tSame or not fail:\n" << cmd << '\n' << ready_cmd << '\n';
                     return Command();
+                }
             }
-            if (!ready_cmd.IsValid() || bank_occupancy_[itC][itB]) return Command();
+            if (!ready_cmd.IsValid() || bank_occupancy_[itC][itB]) {
+                std::cout << clk_<<"\tGetReadyCommandPIM fail(" << ready_cmd << ") - Bank occupancy " << itC << itB << ": " << bank_occupancy_[itC][itB] << '\n';
+                return Command();
+            }
         }
     }
     return ready_cmd;

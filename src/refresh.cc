@@ -26,6 +26,10 @@ void Refresh::ClockTick() {
     return;
 }
 
+bool Refresh::pim_refresh_coming() {
+    return refresh_interval_ - (clk_ % refresh_interval_)  < 40;
+}
+
 void Refresh::InsertRefresh() {
     switch (refresh_policy_) {
         // Simultaneous all rank refresh

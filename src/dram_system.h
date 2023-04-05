@@ -46,9 +46,6 @@ class BaseDRAMSystem {
     Timing timing_;
     uint64_t parallel_cycles_;
     uint64_t serial_cycles_;
-    std::vector<Transaction> pim_trans_queue_;
-    std::vector<std::vector<bool>> bank_occupancy_;
-    uint64_t pim_trans_queue_depth_ = 32; //TODO
 
 
 #ifdef THERMAL
@@ -76,6 +73,23 @@ class JedecDRAMSystem : public BaseDRAMSystem {
     bool AddTransaction(uint64_t hex_addr, bool is_write) override;
     void ClockTick() override;
     Command GetReadyCommandPIM(Transaction trans, CommandType type);
+    bool pim_configured = false;
+    int npu_status = 0;
+    int vcuts, hcuts, vcuts_next, hcuts_next;
+    int M_tile, stride, kernel_size;
+    std::vector<uint64_t> base_rows_in;
+    std::vector<uint64_t> base_rows_w;
+    std::vector<uint64_t> base_rows_out;
+    std::vector<int> M;
+    std::vector<int> N;
+    std::vector<int> K;
+    std::vector<int> opcnt_in;
+    std::vector<int> opcnt_w;
+    std::vector<int> opcnt_out;
+
+    std::vector<std::vector<bool>> bank_occupancy_;
+    std::vector<Transaction> pim_trans_queue_;
+    uint64_t pim_trans_queue_depth_ = 32; //TODO
 };
 
 // Model a memorysystem with an infinite bandwidth and a fixed latency (possibly

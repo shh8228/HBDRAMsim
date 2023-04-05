@@ -37,6 +37,7 @@ class Controller {
     void ResetStats() { simple_stats_.Reset(); }
     std::pair<uint64_t, int> ReturnDoneTrans(uint64_t clock);
     Command GetReadyCommand(Command& cmd, uint64_t clk);
+    bool pim_refresh_coming();
 
     int channel_id_;
 

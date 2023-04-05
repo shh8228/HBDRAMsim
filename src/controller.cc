@@ -66,6 +66,10 @@ Command Controller::GetReadyCommand(Command& cmd, uint64_t clk) {
     return channel_state_.GetReadyCommand(cmd, clk);
 }
 
+bool Controller::pim_refresh_coming() {
+    return refresh_.pim_refresh_coming();
+}
+
 void Controller::ClockTick() {
     // update refresh counter
     refresh_.ClockTick();
