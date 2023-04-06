@@ -210,9 +210,108 @@ void JedecDRAMSystem::ClockTick() {
 
     if (pim_trans_queue_.empty()) std::cout<<clk_ << "\tEmpty PIM trans queue\n";
 
-    if (!pim_trans_queue_.empty() && !wait_refresh) {
+    if (!pim_trans_queue_.empty()) { // wait_refresh: when sending an activation cmd. no configured var
         std::cout<<clk_<<"\tTransaction Queue size: " << pim_trans_queue_.size() << '\n';
         for (auto& it : pim_trans_queue_) {
+            uint64_t address = it.addr;
+            int cut_no;
+            int bw_cutNo = 4;
+            int bw_vcuts = 2;
+            int bw_hcuts = 1;
+            int bw_Mtile = 4;
+            int bw_kernelSize = 5;
+            int bw_stride = 5;
+            int bw_dimValue = 32;
+            int bw_baseRow = 22;
+            int bw_loadType = 2;
+
+            if (it.addr & 1) { // computing
+                address = address >> 1;
+                cut_no = address & ((1 << bw_cutNo)-1);
+
+                bool configured = M[cut_no] != 0 && N[cut_no] != 0 && K[cut_no] != 0;
+                if (!configured) break;
+
+                in_pim[cut_no] = true;
+
+            }
+            else if (it.addr & (3 << 5)) { // cutting
+
+
+                base_rows_w.clear();
+                base_rows_in.clear();
+                base_rows_out.clear();
+                M.clear();
+                N.clear();
+                K.clear();
+                opcnt_in.clear();
+                opcnt_w.clear();
+                opcnt_out.clear();
+
+                address = address >> 1 >> 4 >> 2; // trans_type, cut_no, loadType
+                vcuts = 1 << (address & ((1<<bw_vcuts)-1));
+                address = address >> bw_vcuts;
+                hcuts = 1 << (address & ((1<<bw_hcuts)-1));
+                address = address >> bw_hcuts;
+                M_tile = 1 << (address & ((1<<bw_Mtile)-1));
+                address = address >> bw_Mtile;
+                vcuts_next = 1 << (address & ((1<<bw_vcuts)-1));
+                address = address >> bw_vcuts;
+                hcuts_next = 1 << (address & ((1<<bw_hcuts)-1));
+                address = address >> bw_hcuts;
+                kernel_size = address & ((1<<bw_kernelSize)-1);
+                address = address >> bw_kernelSize;
+                stride = address & ((1<<bw_stride)-1);
+
+                int cuts = vcuts * hcuts;
+                base_rows_w.assign(cuts, 0);
+                base_rows_in.assign(cuts, 0);
+                base_rows_out.assign(cuts, 0);
+                M.assign(cuts, 0);
+                N.assign(cuts, 0);
+                K.assign(cuts, 0);
+                opcnt_in.assign(cuts, 0);
+                opcnt_w.assign(cuts, 0);
+                opcnt_out.assign(cuts, 0);
+                in_pim.assign(cuts, false);
+                break;
+
+            }
+            else { // loading
+                address = address >> 1;
+                cut_no = address & ((1 << bw_cutNo)-1);
+                address = address >> 4;
+                int loadType = address & ((1<<bw_loadType)-1);
+                address = address >> bw_loadType;
+                int dim_value = address & ((1<<bw_dimValue)-1);
+                address = address >> bw_dimValue;
+                uint64_t base_row = address & ((1<<bw_baseRow)-1);
+                address = address >> bw_baseRow;
+                switch(loadType) {
+                    case 0: // M, Input
+                        base_rows_in[cut_no] = base_row;
+                        M[cut_no] = dim_value;
+                        break;
+                    case 1: // K, weight
+                        base_rows_w[cut_no] = base_row;
+                        K[cut_no] = dim_value;
+                        break;
+                    case 2: // N, output
+                        base_rows_out[cut_no] = base_row;
+                        N[cut_no] = dim_value;
+                        break;
+                    default:
+                        std::cerr << "Invalid load type!"
+                                  << std::endl;
+                        AbruptExit(__FILE__, __LINE__);
+                        break;
+                }
+                break;
+
+            }
+
+
+
             if (!it.active) {
                 std::cout<<clk_<<"\tTransaction Inactive: " << it << "\t" << it.col_num << "\t" << it.end_col << '\n';
                 continue;
