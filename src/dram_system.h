@@ -73,12 +73,13 @@ class JedecDRAMSystem : public BaseDRAMSystem {
     bool AddTransaction(uint64_t hex_addr, bool is_write) override;
     void ClockTick() override;
     Command GetReadyCommandPIM(Transaction trans, CommandType type);
-    int npu_status = 0;
     int vcuts = -1;
     int hcuts = -1;
     int vcuts_next = -1;
     int hcuts_next = -1;
-    int M_tile = 0;
+    // TODO now it is same with all cuts, but it should be not
+    int M_tile_size = 0;
+    // TODO stride and kernel size also must be vectors
     int stride = 0;
     int kernel_size = 0;
     std::vector<uint64_t> base_rows_in;
@@ -87,10 +88,16 @@ class JedecDRAMSystem : public BaseDRAMSystem {
     std::vector<int> M;
     std::vector<int> N;
     std::vector<int> K;
-    std::vector<int> opcnt_in;
-    std::vector<int> opcnt_w;
-    std::vector<int> opcnt_out;
+    std::vector<int> M_it;
+    std::vector<int> N_it;
+    std::vector<int> K_tile_it;
+    std::vector<int> M_out_it;
+    std::vector<int> N_out_tile_it;
     std::vector<bool> in_pim;
+    std::vector<int> iw_status;
+    std::vector<int> output_ready;
+    std::vector<int> in_cnt;
+    std::vector<int> out_cnt;
 
     std::vector<std::vector<bool>> bank_occupancy_;
     std::vector<Transaction> pim_trans_queue_;

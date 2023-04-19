@@ -195,7 +195,7 @@ void JedecDRAMSystem::ClockTick() {
     for (size_t i=0; i<ctrls_.size(); i++) {
         if (ctrls_[i]->pim_refresh_coming()) {
             wait_refresh = true;
-            std::cout<<clk_ << "\tWait Refresh\n";
+            //std::cout<<clk_ << "\tWait Refresh\n";
         }
     }
 
@@ -208,316 +208,305 @@ void JedecDRAMSystem::ClockTick() {
     bool output_trans_found = false;
 
 
-    if (pim_trans_queue_.empty()) std::cout<<clk_ << "\tEmpty PIM trans queue\n";
 
     if (!pim_trans_queue_.empty()) { // wait_refresh: when sending an activation cmd. no configured var
         std::cout<<clk_<<"\tTransaction Queue size: " << pim_trans_queue_.size() << '\n';
-        for (auto& it : pim_trans_queue_) {
-            uint64_t address = it.addr;
-            int cut_no;
-            int bw_cutNo = 4;
-            int bw_vcuts = 2;
-            int bw_hcuts = 1;
-            int bw_Mtile = 4;
-            int bw_kernelSize = 5;
-            int bw_stride = 5;
-            int bw_dimValue = 32;
-            int bw_baseRow = 22;
-            int bw_loadType = 2;
+        int cut_no;
+        int bw_cutNo = 4;
+        int bw_vcuts = 2;
+        int bw_hcuts = 1;
+        int bw_Mtile = 4;
+        int bw_kernelSize = 5;
+        int bw_stride = 5;
+        int bw_dimValue = 32;
+        int bw_baseRow = 22;
+        int bw_loadType = 2;
 
-            if (it.addr & 1) { // computing
-                address = address >> 1;
-                cut_no = address & ((1 << bw_cutNo)-1);
+        auto it = pim_trans_queue_.begin();
+        uint64_t address = it->addr;
 
-                bool configured = M[cut_no] != 0 && N[cut_no] != 0 && K[cut_no] != 0;
-                if (!configured) break;
-
-                in_pim[cut_no] = true;
-
+        if (it->addr & 1) { // computing
+            address = address >> 1;
+            int cuts = vcuts * hcuts;
+            bool configured = true;
+            for (int i=0; i<cuts; i++)
+                if ((address & (1 << i)) && (M[i] != 0 && N[i] != 0 && K[i] != 0));
+                else configured = false;
+            if (configured) {
+                for (int i=0; i<cuts; i++)
+                    if(address & (1 << i))
+                        in_pim[i] = true;
+                pim_trans_queue_.erase(it);
             }
-            else if (it.addr & (3 << 5)) { // cutting
+        }
+        else if ((it->addr & (1 << 6)) && (it->addr & (1 << 5))) { // cutting
 
 
-                base_rows_w.clear();
-                base_rows_in.clear();
-                base_rows_out.clear();
-                M.clear();
-                N.clear();
-                K.clear();
-                opcnt_in.clear();
-                opcnt_w.clear();
-                opcnt_out.clear();
+            base_rows_w.clear();
+            base_rows_in.clear();
+            base_rows_out.clear();
+            M.clear();
+            N.clear();
+            K.clear();
+            M_it.clear();
+            K_tile_it.clear();
+            N_it.clear();
+            M_out_it.clear();
+            N_out_tile_it.clear();
+            in_pim.clear();
+            iw_status.clear();
+            in_cnt.clear();
+            out_cnt.clear();
+            output_ready.clear();
 
-                address = address >> 1 >> 4 >> 2; // trans_type, cut_no, loadType
-                vcuts = 1 << (address & ((1<<bw_vcuts)-1));
-                address = address >> bw_vcuts;
-                hcuts = 1 << (address & ((1<<bw_hcuts)-1));
-                address = address >> bw_hcuts;
-                M_tile = 1 << (address & ((1<<bw_Mtile)-1));
-                address = address >> bw_Mtile;
-                vcuts_next = 1 << (address & ((1<<bw_vcuts)-1));
-                address = address >> bw_vcuts;
-                hcuts_next = 1 << (address & ((1<<bw_hcuts)-1));
-                address = address >> bw_hcuts;
-                kernel_size = address & ((1<<bw_kernelSize)-1);
-                address = address >> bw_kernelSize;
-                stride = address & ((1<<bw_stride)-1);
+            address = address >> 1 >> 4 >> 2; // trans_type, cut_no, loadType
+            vcuts = 1 << (address & ((1<<bw_vcuts)-1));
+            address = address >> bw_vcuts;
+            hcuts = 1 << (address & ((1<<bw_hcuts)-1));
+            address = address >> bw_hcuts;
+            M_tile_size = 1 << (address & ((1<<bw_Mtile)-1));
+            address = address >> bw_Mtile;
+            vcuts_next = 1 << (address & ((1<<bw_vcuts)-1));
+            address = address >> bw_vcuts;
+            hcuts_next = 1 << (address & ((1<<bw_hcuts)-1));
+            address = address >> bw_hcuts;
+            kernel_size = address & ((1<<bw_kernelSize)-1);
+            address = address >> bw_kernelSize;
+            stride = address & ((1<<bw_stride)-1);
 
-                int cuts = vcuts * hcuts;
-                base_rows_w.assign(cuts, 0);
-                base_rows_in.assign(cuts, 0);
-                base_rows_out.assign(cuts, 0);
-                M.assign(cuts, 0);
-                N.assign(cuts, 0);
-                K.assign(cuts, 0);
-                opcnt_in.assign(cuts, 0);
-                opcnt_w.assign(cuts, 0);
-                opcnt_out.assign(cuts, 0);
-                in_pim.assign(cuts, false);
-                break;
+            assert(M_tile_size < 2048); // TODO accurate value
 
+            int cuts = vcuts * hcuts;
+            base_rows_w.assign(cuts, 0);
+            base_rows_in.assign(cuts, 0);
+            base_rows_out.assign(cuts, 0);
+            M.assign(cuts, 0);
+            N.assign(cuts, 0);
+            K.assign(cuts, 0);
+            M_it.assign(cuts, 0);
+            K_tile_it.assign(cuts, 0);
+            N_it.assign(cuts, 0);
+            M_out_it.assign(cuts, 0);
+            N_out_tile_it.assign(cuts, 0);
+            in_pim.assign(cuts, false);
+            iw_status.assign(cuts, 0);
+            in_cnt.assign(cuts, -1);
+            out_cnt.assign(cuts, -1);
+            output_ready.assign(cuts, 0);
+
+            pim_trans_queue_.erase(it);
+        }
+        else { // loading
+            address = address >> 1;
+            cut_no = address & ((1 << bw_cutNo)-1);
+            address = address >> 4;
+            int loadType = address & ((1<<bw_loadType)-1);
+            address = address >> bw_loadType;
+            int dim_value = address & (((uint64_t)1<<bw_dimValue)-1);
+            address = address >> bw_dimValue;
+            uint64_t base_row = address & ((1<<bw_baseRow)-1);
+            address = address >> bw_baseRow;
+            switch(loadType) {
+                case 0: // M, weight
+                    base_rows_w[cut_no] = base_row;
+                    M[cut_no] = dim_value;
+                    break;
+                case 1: // K, output
+                    base_rows_out[cut_no] = base_row;
+                    std::cout<<base_row<<std::endl;
+                    K[cut_no] = dim_value;
+                    break;
+                case 2: // N, input
+                    base_rows_in[cut_no] = base_row;
+                    N[cut_no] = dim_value;
+                    break;
+                default:
+                    std::cerr << "Invalid load type!"
+                              << std::endl;
+                    AbruptExit(__FILE__, __LINE__);
+                    break;
             }
-            else { // loading
-                address = address >> 1;
-                cut_no = address & ((1 << bw_cutNo)-1);
-                address = address >> 4;
-                int loadType = address & ((1<<bw_loadType)-1);
-                address = address >> bw_loadType;
-                int dim_value = address & ((1<<bw_dimValue)-1);
-                address = address >> bw_dimValue;
-                uint64_t base_row = address & ((1<<bw_baseRow)-1);
-                address = address >> bw_baseRow;
-                switch(loadType) {
-                    case 0: // M, Input
-                        base_rows_in[cut_no] = base_row;
-                        M[cut_no] = dim_value;
-                        break;
-                    case 1: // K, weight
-                        base_rows_w[cut_no] = base_row;
-                        K[cut_no] = dim_value;
-                        break;
-                    case 2: // N, output
-                        base_rows_out[cut_no] = base_row;
-                        N[cut_no] = dim_value;
-                        break;
-                    default:
-                        std::cerr << "Invalid load type!"
-                                  << std::endl;
-                        AbruptExit(__FILE__, __LINE__);
-                        break;
-                }
-                break;
-
-            }
-
-
-
-            if (!it.active) {
-                std::cout<<clk_<<"\tTransaction Inactive: " << it << "\t" << it.col_num << "\t" << it.end_col << '\n';
-                continue;
-            }
-            std::cout<<clk_<<"\tTransaction Active: " << it << "\t" << it.col_num << "\t" << it.end_col << '\n';
-
-            uint64_t tensor = it.addr ^ ((it.addr >> tensor_bitwidth) << tensor_bitwidth);
-            bool is_config = false;
-
-
-
-            bool issuable = true;
-            std::cout<<(int)it.col_num<<": col_num\n";
-            // Input, Weight Dependency
-            if (tensor == 0 && weight_fetching) {
-                std::cout<<clk_<<"\tWeight Dependency: "<<it<<'\n';
-                assert(it.col_num == 0);
-                issuable = false; //not send cmd?
-            }
-            else if (tensor == 1 && input_sending) {
-                std::cout<<clk_<<"\tInput Dependency: "<<it<<'\n';
-
-                issuable = false; // not send cmd?
-            }
-
-            // For bank interleaving
-            bool ex_pending = (input_trans_found && tensor == 0) ||
-                              (weight_trans_found && tensor == 1) ||
-                              (output_trans_found && tensor == 2);
-
-            // TODO when PIM_E
-            if (tensor == 0) input_trans_found = true;
-            else if (tensor == 1) weight_trans_found = true;
-            else output_trans_found = true;
-
-
-            // TODO: R/W_PRECHARGE when col_num is 31 for energy saving
-            CommandType type;
-            if (tensor == 2) {
-                type = CommandType::WRITE;
-            }
-            else {
-                type = CommandType::READ;
-            }
-
-            Command ready_cmd_temp = GetReadyCommandPIM(it, type);
-
-            bool ReadOrWrite = ready_cmd_temp.cmd_type == type;
-
-            // TODO: more restrictive false to give tighter timing for energy saving
-            if (ex_pending && ReadOrWrite) {
-                issuable = false;
-                std::cout<<clk_<<"\tintra Dependency: "<<it<<'\n';
-            }
-
-            if (!ready_cmd_temp.IsValid()) std::cout<<clk_<<"\tNot To be issued: " << ready_cmd_temp << '\n';
-            if (ready_cmd_temp.IsValid() && issuable) {
-                std::cout<<clk_<<"\tTo be issued: "<<ready_cmd_temp<<'\n';
-                if (ReadOrWrite) {
-                    it.col_num++;
-                }
-
-                for (auto& itC : it.targetChans) {
-                    for (auto& itB : it.targetBanks) {
-
-                        // TODO Address scheme
-                        Address addr = Address((int) itC, 0, 0, (int) itB, (int) it.row_addr,  (int) it.col_num);
-
-                        Command cmd = Command(type, addr, it.addr);
-                        Command ready_cmd = ctrls_[itC]->GetReadyCommand(cmd, clk_);
-                        assert(ready_cmd.IsValid());
-                        assert(ready_cmd.cmd_type == ready_cmd_temp.cmd_type);
-
-
-                        if (ready_cmd_temp.cmd_type == CommandType::ACTIVATE)
-                            bank_occupancy_[itC][itB] = true;
-                        else
-                            assert(bank_occupancy_[itC][itB]);
-
-                        ctrls_[itC]->pim_cmds_.push_back(ready_cmd);
-                    }
-                }
-            }
+            pim_trans_queue_.erase(it);
 
         }
-        // bank_occupancy_ free at last R/W
-        for (auto it = pim_trans_queue_.begin(); it != pim_trans_queue_.end(); ) {
-            if (it->active && it->col_num == it->end_col) {
-                std::cout<<clk_<<"\tTransaction clean?: " << *it << "\t" << it->col_num << "\t" << it->end_col << '\n';
-                for (auto& itC : it->targetChans) {
-                    for (auto& itB : it->targetBanks) {
-                        bank_occupancy_[itC][itB] = false;
+    }
+
+    int cuts = 0;
+    if (vcuts != -1 && hcuts != -1) cuts = vcuts * hcuts;
+    for (int i=0; i < cuts; i++) {
+        if (!in_pim[i]) continue;
+
+        int vcut_no = i % vcuts;
+        int cut_height = config_.channels / hcuts;
+        int hcut_no = i / vcuts;
+        int cut_width = config_.banks / vcuts;
+
+        int N_tile_size = 128 / vcuts; // TODO 128 : the number of PEs in a row
+        int N_tile_it = N_it[i] / N_tile_size;
+        int M_tile_it = M_it[i] / M_tile_size;
+        int M_current_tile_size = M[i] < M_tile_size * (M_tile_it + 1) ? M[i] % M_tile_size : M_tile_size;
+        int K_tile_size = std::min(cut_height * 16, K[i]); // TODO 16: the number of PEs supported by a bank's io
+
+
+        // TODO
+        int weight_banks_reduce = 2;
+        std::vector<Command> cmds;
+
+        switch (iw_status[i]) {
+            case 0: { // Fetching weight
+                int N_tile_size_per_bank = N_tile_size/(cut_width/weight_banks_reduce);
+                int col_offset = N_tile_it * (N_tile_size_per_bank * ((K[i]-1) / K_tile_size + 1)) + K_tile_it[i] * N_tile_size_per_bank + N_it[i] % N_tile_size; // N_it incremented by N_tile_size when N_it % N_tile_size_per_bank == 0 (but not with N_tile_size)
+                for (int j=0; j<cut_height; j++) {
+                   for (int k=0; k<cut_width/weight_banks_reduce; k++) {
+                        // TODO offset must be divided by row_width/dev_width
+                        Address addr = Address(hcut_no * cut_height + j, 0, 0, vcut_no * cut_width + k * weight_banks_reduce, base_rows_w[i] + col_offset/32,  col_offset % 32);
+                        uint64_t hex_addr = config_.AddressUnmapping(addr);
+                        Command cmd = Command(CommandType::READ, addr, hex_addr);
+                        cmds.push_back(cmd);
                     }
                 }
-                std::cout<<clk_<<"\tErase transaction "<<*it<<'\n';
-                it = pim_trans_queue_.erase(it);
+
+                std::cout<<"Fetch Weight\n";
+
+                // check issuability
+                bool issuable = true;
+
+                // issue
+
+
+                // increment iterators
+                N_it[i]++;
+                if (N_it[i] % N_tile_size_per_bank == 0 && N_it[i] % N_tile_size != 0) {
+                    N_it[i] = N_tile_size * N_tile_it;
+                    iw_status[i]++;
+
+                }
+
+
+
+                break;
             }
-            else
-                it++;
+            case 1: { // Finished weight
+                // wait npu_signals
+                iw_status[i]++;
+
+                if ((K_tile_it[i]+1) * K_tile_size >= K[i])
+                    out_cnt[i] = 3 + 16; // TODO log(8) + 128 / 8
+                break;
+            }
+            case 2: { // Feeding input
+
+                int col_offset = M_tile_it * (M_tile_size * ((K[i]-1) / K_tile_size + 1)) + K_tile_it[i] * M_current_tile_size + M_it[i] % M_tile_size;
+                for (int j=0; j<cut_height; j++) {
+                    // TODO offset must be divided by row_width/dev_width
+                    Address addr = Address(hcut_no * cut_height + j, 0, 0, vcut_no * cut_width, base_rows_in[i] + col_offset/32,  col_offset % 32);
+                    uint64_t hex_addr = config_.AddressUnmapping(addr);
+                    Command cmd = Command(CommandType::READ, addr, hex_addr);
+                    cmds.push_back(cmd);
+                }
+
+                std::cout<<"Feed Input\n";
+
+                // check issuability
+                bool issuable = true;
+
+                M_it[i]++;
+                if (M_it[i] % M_tile_size == 0 || M_it[i] == M[i]) {
+
+                    in_cnt[i] = std::max(1, 128/vcuts - 30); // TODO subtract tRP+tRCD
+                    iw_status[i]++;
+
+                    M_it[i] = M_tile_size * M_tile_it;
+                    K_tile_it[i]++;
+
+                    if (K_tile_it[i] * K_tile_size >= K[i]) {
+                        K_tile_it[i] = 0;
+                        N_it[i] = N_tile_size * (N_tile_it+1);
+                        if (N_it[i] >= N[i]) {
+                            N_it[i] = 0;
+                            M_it[i] = M_tile_size * (M_tile_it+1);
+                            if (M_it[i] >= M[i]) {
+                                std::cout<<"End of Computation\n";
+                                in_cnt[i] = -1;
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+            case 3: {// Finished input
+                if (in_cnt[i] != -1) {
+                    in_cnt[i]--;
+                    if (in_cnt[i] == 0)
+                        iw_status[i] = 0;
+                }
+                break;
+            }
+            default: {
+                break;
+            }
+        }
+
+        // TODO simulate npu_signal
+
+
+        if (out_cnt[i] == 0) output_ready[i]++;
+        if (out_cnt[i] != -1) out_cnt[i]--;
+
+
+
+        if (output_ready[i] > 0) {
+            int vcut_out_no = (vcut_no + N_out_tile_it[i]) % vcuts; // relates to channel number
+            int M_out_tile_it = M_out_it[i] / M_tile_size;
+            int M_out_current_tile_size = M[i] < M_tile_size * (M_out_tile_it + 1) ? M[i] % M_tile_size : M_tile_size;
+            int N_tile_num = (N[i]-1) / N_tile_size + 1;
+            int N_tile_num_ch = (N_tile_num) / vcuts; // varies by channels to be accessed
+            N_tile_num_ch += N_tile_num % vcuts > N_out_tile_it[i] % vcuts ? 1 : 0;
+            int N_tile_it_ch = N_out_tile_it[i] / vcuts;
+            int col_offset = M_out_tile_it * (M_tile_size * N_tile_num_ch) + N_tile_it_ch * M_out_current_tile_size + M_out_it[i] % M_tile_size;
+
+            for (int j=0; j<cut_height / vcuts; j++) {
+                // TODO offset must be divided by row_width/dev_width
+                Address addr = Address(hcut_no * cut_height + vcut_out_no * (cut_height / vcuts) + j, 0, 0, vcut_no * cut_width + 1, base_rows_out[i] + col_offset/32,  col_offset % 32);
+                uint64_t hex_addr = config_.AddressUnmapping(addr);
+                Command cmd = Command(CommandType::WRITE, addr, hex_addr);
+                cmds.push_back(cmd);
+            }
+
+            std::cout<<"Write Output\n";
+
+            M_out_it[i]++;
+            if (M_out_it[i] % M_tile_size == 0 || M_out_it[i] == M[i]) {
+                M_out_it[i] = M_tile_size * M_out_tile_it;
+                N_out_tile_it[i]++;
+                if (N_out_tile_it[i] * N_tile_size >= N[i]) {
+                    N_out_tile_it[i] = 0;
+                    M_out_it[i] = M_tile_size * (M_out_tile_it+1);
+                    if (M_out_it[i] >= M[i]) {
+                        assert(in_cnt[i] == -1);
+                        std::cout<<"Output Exhausted. Turn off PIM mode.\n";
+                        in_pim[i] = false;
+                    }
+
+                }
+
+                output_ready[i]--;
+                // Output Tile Finished
+            }
+        }
+        for (auto& it: cmds) {
+            std::cout<<it<<std::endl;
         }
 
     }
+
+
+
 
     for (size_t i = 0; i < ctrls_.size(); i++) {
         ctrls_[i]->ClockTick();
     }
 
-    // Schedule PIM Transactions
-    for (auto it = pim_trans_queue_.begin(); it != pim_trans_queue_.end(); it++) {
-        if (it->active) continue;
-
-        uint64_t tempA, tempB, address;
-        address = it->addr;
-
-        unsigned tensor, confTypeV, isConfiguredV, confTypeH, isConfiguredH, rowAddress, weightOffset;
-
-        tempA = address;
-        address = address >> 3;
-        tempB = address << 3;
-        tensor = tempA ^ tempB;
-
-        tempA = address;
-        address = address >> 2;
-        tempB = address << 2;
-        confTypeV = tempA ^ tempB;
-
-        tempA = address;
-        address = address >> 8;
-        tempB = address << 8;
-        isConfiguredV = tempA ^ tempB;
-
-        tempA = address;
-        address = address >> 1;
-        tempB = address << 1;
-        confTypeH = tempA ^ tempB;
-
-        tempA = address;
-        address = address >> 2;
-        tempB = address << 2;
-        isConfiguredH = tempA ^ tempB;
-
-        tempA = address;
-        address = address >> 1;
-        tempB = address << 1;
-        weightOffset = tempA ^ tempB;
-
-        rowAddress = address;
-
-        size_t numChunksV = std::pow(2, confTypeV); // 2 == NUM_BANKS / max_num_chunks
-        int chunk_sizeV = (config_.ranks * config_.banks) / numChunksV;
-
-        size_t numChunksH = std::pow(2, confTypeH);
-        int chunk_sizeH = config_.channels / numChunksH;
-
-        for (size_t i=0; i<numChunksV; i++)
-        {
-            if (isConfiguredV & (1 << i))
-            {
-                std::cout<<"targetBanks added\n";
-                if (tensor == 0) // input
-                {
-                    it->targetBanks.push_back(i*chunk_sizeV);
-                }
-
-                else if (tensor == 1) // weight
-                {
-                    for (size_t j=0; j<chunk_sizeV/2; j++)
-                        it->targetBanks.push_back(i*chunk_sizeV + 2*j); // even banks
-                }
-
-                else if (tensor == 2) // output
-                {
-                    it->targetBanks.push_back(i*chunk_sizeV + 1);
-                }
-            }
-        }
-
-        for (size_t i=0; i<numChunksH; i++)
-        {
-            if (isConfiguredH & (1 << i))
-            {
-                std::cout<<"targetChans added\n";
-                for (size_t j=0; j<chunk_sizeH; j++){
-                        it->targetChans.push_back(i*chunk_sizeH + j); // even banks
-                }
-            }
-        }
-
-        int w_reads_per_tile = 128/((config_.ranks*config_.bankgroups*config_.banks)/2); // 16 when peX==128 and bandX==16
-
-        int col_num;
-        if (tensor == 1 && w_reads_per_tile < 32)
-            col_num = weightOffset * w_reads_per_tile;
-        else col_num = 0;
-
-        int end_col = (tensor != 1 || w_reads_per_tile > 32) ? 32: (weightOffset+1) * w_reads_per_tile;
-        std::cout<<end_col<<": col_end\n";
-
-        it->is_pim = true;
-        it->col_num = col_num;
-        it->row_addr = rowAddress;
-        it->end_col = end_col;
-        it->active = true;
-
-        break; // activate one transaction per cycle
-    }
     clk_++;
 
     if (clk_ % config_.epoch_period == 0) {

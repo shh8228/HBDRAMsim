@@ -28,13 +28,14 @@ enum class RefreshPolicy {
     RANK_LEVEL_SIMULTANEOUS,  // impractical due to high power requirement
     RANK_LEVEL_STAGGERED,
     BANK_LEVEL_STAGGERED,
-    SIZE 
+    SIZE
 };
 
 class Config {
    public:
     Config(std::string config_file, std::string out_dir);
     Address AddressMapping(uint64_t hex_addr) const;
+    uint64_t AddressUnmapping(Address addr) const;
     // DRAM physical structure
     DRAMProtocol protocol;
     int channel_size;
