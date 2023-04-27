@@ -62,6 +62,11 @@ enum class CommandType {
     REFRESH,
     SREF_ENTER,
     SREF_EXIT,
+    PIM_READ,
+    PIM_READ_PRECHARGE,
+    PIM_WRITE,
+    PIM_WRITE_PRECHARGE,
+    PIM_ACTIVATE,
     SIZE
 };
 

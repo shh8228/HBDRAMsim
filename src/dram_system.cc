@@ -189,6 +189,8 @@ void JedecDRAMSystem::ClockTick() {
         }
     }
 
+    std::cout<<"Clock Cycle "<<clk_<<std::endl;
+
     //lookup refresh_ in each controller to check refresh countdown
     //if countdown is lower than pim delay, pause issuing pim commands until refresh is done over all ranks
     bool wait_refresh = false;
@@ -274,7 +276,7 @@ void JedecDRAMSystem::ClockTick() {
             address = address >> bw_kernelSize;
             stride = address & ((1<<bw_stride)-1);
 
-            assert(M_tile_size < 2048); // TODO accurate value
+            assert(M_tile_size <= 2048); // TODO accurate value
 
             int cuts = vcuts * hcuts;
             base_rows_w.assign(cuts, 0);
@@ -350,38 +352,57 @@ void JedecDRAMSystem::ClockTick() {
 
         // TODO
         int weight_banks_reduce = 2;
-        std::vector<Command> cmds;
+        std::vector<Command> iw_cmds;
 
+
+        //std::cout<<iw_status[i]<<"iw_status\n";
         switch (iw_status[i]) {
             case 0: { // Fetching weight
                 int N_tile_size_per_bank = N_tile_size/(cut_width/weight_banks_reduce);
                 int col_offset = N_tile_it * (N_tile_size_per_bank * ((K[i]-1) / K_tile_size + 1)) + K_tile_it[i] * N_tile_size_per_bank + N_it[i] % N_tile_size; // N_it incremented by N_tile_size when N_it % N_tile_size_per_bank == 0 (but not with N_tile_size)
                 for (int j=0; j<cut_height; j++) {
-                   for (int k=0; k<cut_width/weight_banks_reduce; k++) {
+                    for (int k=0; k<cut_width/weight_banks_reduce; k++) {
                         // TODO offset must be divided by row_width/dev_width
-                        Address addr = Address(hcut_no * cut_height + j, 0, 0, vcut_no * cut_width + k * weight_banks_reduce, base_rows_w[i] + col_offset/32,  col_offset % 32);
+                        int ch = hcut_no * cut_height + j;
+                        int bk = vcut_no * cut_width + k * weight_banks_reduce;
+                        int bg = bk / config_.banks_per_group;
+                        bk = bk % config_.banks_per_group;
+                        Address addr = Address(ch, 0, bg, bk, base_rows_w[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
                         uint64_t hex_addr = config_.AddressUnmapping(addr);
-                        Command cmd = Command(CommandType::READ, addr, hex_addr);
-                        cmds.push_back(cmd);
+                        CommandType cmd_type = (addr.column + 1) % ((config_.columns / config_.BL) / weight_banks_reduce) == 0 ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
+                        Command cmd = Command(cmd_type, addr, hex_addr);
+                        Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
+                        if (!ready_cmd.IsValid()) {
+                            // std::cout<<"Invalid Command: "<<ready_cmd<<std::endl;
+                            iw_cmds.clear();
+                            break;
+                        }
+                        else {
+                            iw_cmds.push_back(ready_cmd);
+                            if (iw_cmds.begin()->cmd_type != ready_cmd.cmd_type) {
+                                // std::cout<<"Unmatched Commands\n"<<ready_cmd<<std::endl<<*(iw_cmds.begin())<<std::endl; //TODO push back when it is not read or write?
+                                iw_cmds.clear();
+                                break;
+                            }
+                        }
+                    }
+                    if (iw_cmds.empty()) break;
+                }
+
+
+                if (iw_cmds.empty()) break;
+
+
+                if (iw_cmds.begin()->cmd_type == CommandType::PIM_READ || iw_cmds.begin()->cmd_type == CommandType::PIM_READ_PRECHARGE) {
+                    std::cout<<"Fetch Weight\n";
+
+                    // increment iterators
+                    N_it[i]++;
+                    if (N_it[i] % N_tile_size_per_bank == 0 && N_it[i] % N_tile_size != 0) {
+                        N_it[i] = N_tile_size * N_tile_it;
+                        iw_status[i]++;
                     }
                 }
-
-                std::cout<<"Fetch Weight\n";
-
-                // check issuability
-                bool issuable = true;
-
-                // issue
-
-
-                // increment iterators
-                N_it[i]++;
-                if (N_it[i] % N_tile_size_per_bank == 0 && N_it[i] % N_tile_size != 0) {
-                    N_it[i] = N_tile_size * N_tile_it;
-                    iw_status[i]++;
-
-                }
-
 
 
                 break;
@@ -390,8 +411,6 @@ void JedecDRAMSystem::ClockTick() {
                 // wait npu_signals
                 iw_status[i]++;
 
-                if ((K_tile_it[i]+1) * K_tile_size >= K[i])
-                    out_cnt[i] = 3 + 16; // TODO log(8) + 128 / 8
                 break;
             }
             case 2: { // Feeding input
@@ -399,35 +418,55 @@ void JedecDRAMSystem::ClockTick() {
                 int col_offset = M_tile_it * (M_tile_size * ((K[i]-1) / K_tile_size + 1)) + K_tile_it[i] * M_current_tile_size + M_it[i] % M_tile_size;
                 for (int j=0; j<cut_height; j++) {
                     // TODO offset must be divided by row_width/dev_width
-                    Address addr = Address(hcut_no * cut_height + j, 0, 0, vcut_no * cut_width, base_rows_in[i] + col_offset/32,  col_offset % 32);
+                    int ch = hcut_no * cut_height + j;
+                    int bk = vcut_no * cut_width;
+                    int bg = bk / config_.banks_per_group;
+                    bk = bk % config_.banks_per_group;
+                    Address addr = Address(ch, 0, bg, bk, base_rows_in[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
                     uint64_t hex_addr = config_.AddressUnmapping(addr);
-                    Command cmd = Command(CommandType::READ, addr, hex_addr);
-                    cmds.push_back(cmd);
+                    CommandType cmd_type = addr.column == config_.columns / config_.BL - 1 ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
+                    Command cmd = Command(cmd_type, addr, hex_addr);
+                    Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
+                    if (!ready_cmd.IsValid()) {
+                        iw_cmds.clear();
+                        break;
+                    }
+                    else {
+                        iw_cmds.push_back(ready_cmd);
+                        if (iw_cmds.begin()->cmd_type != ready_cmd.cmd_type) {
+                            iw_cmds.clear();
+                            break;
+                        }
+                    }
                 }
 
-                std::cout<<"Feed Input\n";
+                if (iw_cmds.empty()) break;
 
-                // check issuability
-                bool issuable = true;
+                if (iw_cmds.begin()->cmd_type == CommandType::PIM_READ || iw_cmds.begin()->cmd_type == CommandType::PIM_READ_PRECHARGE) {
+                    std::cout<<"Feed Input\n";
 
-                M_it[i]++;
-                if (M_it[i] % M_tile_size == 0 || M_it[i] == M[i]) {
+                    if ((K_tile_it[i]+1) * K_tile_size >= K[i] && M_it[i] % M_tile_size == 0)
+                        out_cnt[i] = 2 * (3 + 16); // TODO log(8) + 128 / 8  + extra
 
-                    in_cnt[i] = std::max(1, 128/vcuts - 30); // TODO subtract tRP+tRCD
-                    iw_status[i]++;
+                    M_it[i]++;
+                    if (M_it[i] % M_tile_size == 0 || M_it[i] == M[i]) {
+                        in_cnt[i] = 1; //std::max(1, 128/vcuts - 30); // TODO subtract tRP+tRCD
+                        iw_status[i]++;
 
-                    M_it[i] = M_tile_size * M_tile_it;
-                    K_tile_it[i]++;
+                        M_it[i] = M_tile_size * M_tile_it;
+                        K_tile_it[i]++;
 
-                    if (K_tile_it[i] * K_tile_size >= K[i]) {
-                        K_tile_it[i] = 0;
-                        N_it[i] = N_tile_size * (N_tile_it+1);
-                        if (N_it[i] >= N[i]) {
-                            N_it[i] = 0;
-                            M_it[i] = M_tile_size * (M_tile_it+1);
-                            if (M_it[i] >= M[i]) {
-                                std::cout<<"End of Computation\n";
-                                in_cnt[i] = -1;
+                        if (K_tile_it[i] * K_tile_size >= K[i]) {
+                            // out_cnt[i] = 3;
+                            K_tile_it[i] = 0;
+                            N_it[i] = N_tile_size * (N_tile_it+1);
+                            if (N_it[i] >= N[i]) {
+                                N_it[i] = 0;
+                                M_it[i] = M_tile_size * (M_tile_it+1);
+                                if (M_it[i] >= M[i]) {
+                                    std::cout<<"End of Computation\n";
+                                    in_cnt[i] = -1;
+                                }
                             }
                         }
                     }
@@ -454,6 +493,7 @@ void JedecDRAMSystem::ClockTick() {
         if (out_cnt[i] != -1) out_cnt[i]--;
 
 
+        std::vector<Command> out_cmds;
 
         if (output_ready[i] > 0) {
             int vcut_out_no = (vcut_no + N_out_tile_it[i]) % vcuts; // relates to channel number
@@ -467,35 +507,57 @@ void JedecDRAMSystem::ClockTick() {
 
             for (int j=0; j<cut_height / vcuts; j++) {
                 // TODO offset must be divided by row_width/dev_width
-                Address addr = Address(hcut_no * cut_height + vcut_out_no * (cut_height / vcuts) + j, 0, 0, vcut_no * cut_width + 1, base_rows_out[i] + col_offset/32,  col_offset % 32);
+                int ch = hcut_no * cut_height + vcut_out_no * (cut_height / vcuts) + j;
+                int bk = vcut_no * cut_width + 1;
+                int bg = bk / config_.banks_per_group;
+                bk = bk % config_.banks_per_group;
+                Address addr = Address(ch, 0, bg, bk, base_rows_out[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
                 uint64_t hex_addr = config_.AddressUnmapping(addr);
-                Command cmd = Command(CommandType::WRITE, addr, hex_addr);
-                cmds.push_back(cmd);
+                CommandType cmd_type = addr.column == config_.columns / config_.BL - 1 ? CommandType::PIM_WRITE_PRECHARGE : CommandType::PIM_WRITE;
+                Command cmd = Command(cmd_type, addr, hex_addr);
+                Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
+                if (!ready_cmd.IsValid()) {
+                    out_cmds.clear();
+                    break;
+                }
+                else {
+                    out_cmds.push_back(ready_cmd);
+                    if (out_cmds.begin()->cmd_type != ready_cmd.cmd_type) {
+                        out_cmds.clear();
+                        break;
+                    }
+                }
             }
 
-            std::cout<<"Write Output\n";
+            if (!out_cmds.empty() && (out_cmds.begin()->cmd_type == CommandType::PIM_WRITE || out_cmds.begin()->cmd_type == CommandType::PIM_WRITE_PRECHARGE)) {
+                std::cout<<"Write Output\n";
 
-            M_out_it[i]++;
-            if (M_out_it[i] % M_tile_size == 0 || M_out_it[i] == M[i]) {
-                M_out_it[i] = M_tile_size * M_out_tile_it;
-                N_out_tile_it[i]++;
-                if (N_out_tile_it[i] * N_tile_size >= N[i]) {
-                    N_out_tile_it[i] = 0;
-                    M_out_it[i] = M_tile_size * (M_out_tile_it+1);
-                    if (M_out_it[i] >= M[i]) {
-                        assert(in_cnt[i] == -1);
-                        std::cout<<"Output Exhausted. Turn off PIM mode.\n";
-                        in_pim[i] = false;
+                M_out_it[i]++;
+                if (M_out_it[i] % M_tile_size == 0 || M_out_it[i] == M[i]) {
+                    M_out_it[i] = M_tile_size * M_out_tile_it;
+                    N_out_tile_it[i]++;
+                    if (N_out_tile_it[i] * N_tile_size >= N[i]) {
+                        N_out_tile_it[i] = 0;
+                        M_out_it[i] = M_tile_size * (M_out_tile_it+1);
+                        if (M_out_it[i] >= M[i]) {
+                            assert(in_cnt[i] == -1);
+                            std::cout<<"Output Exhausted. Turn off PIM mode.\n";
+                            in_pim[i] = false;
+                        }
+
                     }
 
+                    output_ready[i]--;
+                    // Output Tile Finished
                 }
-
-                output_ready[i]--;
-                // Output Tile Finished
             }
+
         }
-        for (auto& it: cmds) {
-            std::cout<<it<<std::endl;
+        for (auto& it: iw_cmds) {
+            ctrls_[it.Channel()]->pim_cmds_.push_back(it);
+        }
+        for (auto& it: out_cmds) {
+            ctrls_[it.Channel()]->pim_cmds_.push_back(it);
         }
 
     }

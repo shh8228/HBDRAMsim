@@ -19,7 +19,7 @@ Timing::Timing(const Config& config)
                           config.tRTRS - config.write_delay;
     int read_to_precharge = config.AL + config.tRTP;
     int readp_to_act =
-        config.AL + config.burst_cycle + config.tRTP + config.tRP;
+        config.AL + config.tRTP + config.tRP; // TODO
 
     int write_to_read_l = config.write_delay + config.tWTR_L;
     int write_to_read_s = config.write_delay + config.tWTR_S;
@@ -131,6 +131,7 @@ Timing::Timing(const Config& config)
     same_bank[static_cast<int>(CommandType::READ_PRECHARGE)] =
         std::vector<std::pair<CommandType, int> >{
             {CommandType::ACTIVATE, readp_to_act},
+            {CommandType::PIM_ACTIVATE, readp_to_act},
             {CommandType::REFRESH, read_to_activate},
             {CommandType::REFRESH_BANK, read_to_activate},
             {CommandType::SREF_ENTER, read_to_activate}};
@@ -157,6 +158,7 @@ Timing::Timing(const Config& config)
     same_bank[static_cast<int>(CommandType::WRITE_PRECHARGE)] =
         std::vector<std::pair<CommandType, int> >{
             {CommandType::ACTIVATE, write_to_activate},
+            {CommandType::PIM_ACTIVATE, write_to_activate},
             {CommandType::REFRESH, write_to_activate},
             {CommandType::REFRESH_BANK, write_to_activate},
             {CommandType::SREF_ENTER, write_to_activate}};
@@ -179,10 +181,47 @@ Timing::Timing(const Config& config)
             {CommandType::READ_PRECHARGE, write_to_read_o},
             {CommandType::WRITE_PRECHARGE, write_to_write_o}};
 
+    // command PIM_READ
+    same_bank[static_cast<int>(CommandType::PIM_READ)] =
+        std::vector<std::pair<CommandType, int> >{
+            {CommandType::PIM_READ, read_to_read_s},
+            {CommandType::PIM_WRITE, read_to_write}, // TODO needed?
+            {CommandType::PIM_READ_PRECHARGE, read_to_read_s},
+            {CommandType::PIM_WRITE_PRECHARGE, read_to_write}, // TODO needed?
+            {CommandType::PRECHARGE, read_to_precharge}}; // TODO needed?
+
+    // command PIM_WRITE
+    same_bank[static_cast<int>(CommandType::PIM_WRITE)] =
+        std::vector<std::pair<CommandType, int> >{
+            {CommandType::PIM_READ, write_to_read_s}, // TODO
+            {CommandType::PIM_WRITE, write_to_write_s},
+            {CommandType::PIM_READ_PRECHARGE, write_to_read_l}, // TODO
+            {CommandType::PIM_WRITE_PRECHARGE, write_to_write_s},
+            {CommandType::PRECHARGE, write_to_precharge}}; // TODO
+
+    // command PIM_READ_PRECHARGE
+    same_bank[static_cast<int>(CommandType::PIM_READ_PRECHARGE)] =
+        std::vector<std::pair<CommandType, int> >{
+            {CommandType::ACTIVATE, readp_to_act},
+            {CommandType::PIM_ACTIVATE, readp_to_act},
+            {CommandType::REFRESH, read_to_activate},
+            {CommandType::REFRESH_BANK, read_to_activate},
+            {CommandType::SREF_ENTER, read_to_activate}};
+
+    // command PIM_WRITE_PRECHARGE
+    same_bank[static_cast<int>(CommandType::PIM_WRITE_PRECHARGE)] =
+        std::vector<std::pair<CommandType, int> >{
+            {CommandType::ACTIVATE, write_to_activate},
+            {CommandType::PIM_ACTIVATE, write_to_activate},
+            {CommandType::REFRESH, write_to_activate},
+            {CommandType::REFRESH_BANK, write_to_activate},
+            {CommandType::SREF_ENTER, write_to_activate}};
+
     // command ACTIVATE
     same_bank[static_cast<int>(CommandType::ACTIVATE)] =
         std::vector<std::pair<CommandType, int> >{
             {CommandType::ACTIVATE, activate_to_activate},
+            {CommandType::PIM_ACTIVATE, activate_to_activate},
             {CommandType::READ, activate_to_read},
             {CommandType::WRITE, activate_to_write},
             {CommandType::READ_PRECHARGE, activate_to_read},
@@ -200,10 +239,33 @@ Timing::Timing(const Config& config)
             {CommandType::ACTIVATE, activate_to_activate_s},
             {CommandType::REFRESH_BANK, activate_to_refresh}};
 
+    // command PIM_ACTIVATE
+    same_bank[static_cast<int>(CommandType::PIM_ACTIVATE)] =
+        std::vector<std::pair<CommandType, int> >{
+            {CommandType::ACTIVATE, activate_to_activate},
+            {CommandType::PIM_ACTIVATE, activate_to_activate},
+            {CommandType::PIM_READ, activate_to_read},
+            {CommandType::PIM_WRITE, activate_to_write},
+            {CommandType::PIM_READ_PRECHARGE, activate_to_read},
+            {CommandType::PIM_WRITE_PRECHARGE, activate_to_write},
+            {CommandType::PRECHARGE, activate_to_precharge},
+        };
+
+    other_banks_same_bankgroup[static_cast<int>(CommandType::PIM_ACTIVATE)] =
+        std::vector<std::pair<CommandType, int> >{
+            // {CommandType::ACTIVATE, activate_to_activate_l}, // We assume the PIM address and normal address have separated paths
+            {CommandType::REFRESH_BANK, activate_to_refresh}};
+
+    other_bankgroups_same_rank[static_cast<int>(CommandType::PIM_ACTIVATE)] =
+        std::vector<std::pair<CommandType, int> >{
+            // {CommandType::ACTIVATE, activate_to_activate_s},
+            {CommandType::REFRESH_BANK, activate_to_refresh}};
+
     // command PRECHARGE
     same_bank[static_cast<int>(CommandType::PRECHARGE)] =
         std::vector<std::pair<CommandType, int> >{
             {CommandType::ACTIVATE, precharge_to_activate},
+            {CommandType::PIM_ACTIVATE, precharge_to_activate},
             {CommandType::REFRESH, precharge_to_activate},
             {CommandType::REFRESH_BANK, precharge_to_activate},
             {CommandType::SREF_ENTER, precharge_to_activate}};
@@ -225,6 +287,7 @@ Timing::Timing(const Config& config)
     same_rank[static_cast<int>(CommandType::REFRESH_BANK)] =
         std::vector<std::pair<CommandType, int> >{
             {CommandType::ACTIVATE, refresh_to_activate_bank},
+            {CommandType::PIM_ACTIVATE, refresh_to_activate_bank},
             {CommandType::REFRESH, refresh_to_activate_bank},
             {CommandType::REFRESH_BANK, refresh_to_activate_bank},
             {CommandType::SREF_ENTER, refresh_to_activate_bank}};
@@ -232,12 +295,14 @@ Timing::Timing(const Config& config)
     other_banks_same_bankgroup[static_cast<int>(CommandType::REFRESH_BANK)] =
         std::vector<std::pair<CommandType, int> >{
             {CommandType::ACTIVATE, refresh_to_activate},
+            {CommandType::PIM_ACTIVATE, refresh_to_activate},
             {CommandType::REFRESH_BANK, refresh_to_refresh},
         };
 
     other_bankgroups_same_rank[static_cast<int>(CommandType::REFRESH_BANK)] =
         std::vector<std::pair<CommandType, int> >{
             {CommandType::ACTIVATE, refresh_to_activate},
+            {CommandType::PIM_ACTIVATE, refresh_to_activate},
             {CommandType::REFRESH_BANK, refresh_to_refresh},
         };
 
@@ -246,6 +311,7 @@ Timing::Timing(const Config& config)
     same_rank[static_cast<int>(CommandType::REFRESH)] =
         std::vector<std::pair<CommandType, int> >{
             {CommandType::ACTIVATE, refresh_to_activate},
+            {CommandType::PIM_ACTIVATE, refresh_to_activate},
             {CommandType::REFRESH, refresh_to_activate},
             {CommandType::SREF_ENTER, refresh_to_activate}};
 
@@ -259,6 +325,7 @@ Timing::Timing(const Config& config)
     same_rank[static_cast<int>(CommandType::SREF_EXIT)] =
         std::vector<std::pair<CommandType, int> >{
             {CommandType::ACTIVATE, self_refresh_exit},
+            {CommandType::PIM_ACTIVATE, self_refresh_exit},
             {CommandType::REFRESH, self_refresh_exit},
             {CommandType::REFRESH_BANK, self_refresh_exit},
             {CommandType::SREF_ENTER, self_refresh_exit}};

@@ -105,6 +105,7 @@ void Controller::ClockTick() {
     else {
         cmd_issued = true;
         for (auto it = pim_cmds_.begin(); it != pim_cmds_.end(); ) {
+            std::cout<<*it<<std::endl;
             IssueCommand(*it);
             it = pim_cmds_.erase(it);
         }
@@ -276,6 +277,7 @@ void Controller::IssueCommand(const Command &cmd) {
             std::cerr << cmd.hex_addr << " not in write queue!" << std::endl;
             exit(1);
         }
+
         auto wr_lat = clk_ - it->second.added_cycle + config_.write_delay;
         simple_stats_.AddValue("write_latency", wr_lat);
         pending_wr_q_.erase(it);
@@ -342,6 +344,25 @@ void Controller::UpdateCommandStats(const Command &cmd) {
             }
             break;
         case CommandType::ACTIVATE:
+            simple_stats_.Increment("num_act_cmds");
+            break;
+        case CommandType::PIM_READ:
+        case CommandType::PIM_READ_PRECHARGE:
+            simple_stats_.Increment("num_read_cmds");
+            if (channel_state_.RowHitCount(cmd.Rank(), cmd.Bankgroup(),
+                                           cmd.Bank()) != 0) {
+                simple_stats_.Increment("num_read_row_hits");
+            }
+            break;
+        case CommandType::PIM_WRITE:
+        case CommandType::PIM_WRITE_PRECHARGE:
+            simple_stats_.Increment("num_write_cmds");
+            if (channel_state_.RowHitCount(cmd.Rank(), cmd.Bankgroup(),
+                                           cmd.Bank()) != 0) {
+                simple_stats_.Increment("num_write_row_hits");
+            }
+            break;
+        case CommandType::PIM_ACTIVATE:
             simple_stats_.Increment("num_act_cmds");
             break;
         case CommandType::PRECHARGE:

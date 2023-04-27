@@ -19,6 +19,11 @@ std::ostream& operator<<(std::ostream& os, const Command& cmd) {
         "refresh",
         "self_refresh_enter",
         "self_refresh_exit",
+        "pim_read",
+        "pim_read_p",
+        "pim_write",
+        "pim_write_p",
+        "pim_activate",
         "WRONG"};
     os << fmt::format("{:<20} {:>3} {:>3} {:>3} {:>3} {:>#8x} {:>#8x}",
                       command_string[static_cast<int>(cmd.cmd_type)],
