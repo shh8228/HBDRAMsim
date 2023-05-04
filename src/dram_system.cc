@@ -398,7 +398,7 @@ void JedecDRAMSystem::ClockTick() {
 
                     // increment iterators
                     N_it[i]++;
-                    if (N_it[i] % N_tile_size_per_bank == 0 && N_it[i] % N_tile_size != 0) {
+                    if (N_it[i] % N_tile_size_per_bank == 0 && (N_tile_size == N_tile_size_per_bank || N_it[i] % N_tile_size != 0)) {
                         N_it[i] = N_tile_size * N_tile_it;
                         iw_status[i]++;
                     }
@@ -424,7 +424,7 @@ void JedecDRAMSystem::ClockTick() {
                     bk = bk % config_.banks_per_group;
                     Address addr = Address(ch, 0, bg, bk, base_rows_in[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
                     uint64_t hex_addr = config_.AddressUnmapping(addr);
-                    CommandType cmd_type = addr.column == config_.columns / config_.BL - 1 ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
+                    CommandType cmd_type = addr.column == config_.columns / config_.BL - 1  || M_it[i] + 1 == M[i] ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
                     Command cmd = Command(cmd_type, addr, hex_addr);
                     Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
                     if (!ready_cmd.IsValid()) {
@@ -445,14 +445,15 @@ void JedecDRAMSystem::ClockTick() {
                 if (iw_cmds.begin()->cmd_type == CommandType::PIM_READ || iw_cmds.begin()->cmd_type == CommandType::PIM_READ_PRECHARGE) {
                     std::cout<<"Feed Input\n";
 
-                    if ((K_tile_it[i]+1) * K_tile_size >= K[i] && M_it[i] % M_tile_size == 0)
-                        out_cnt[i] = 2 * (3 + 16); // TODO log(8) + 128 / 8  + extra
+                    assert(M_tile_size > 128/vcuts);
+                    if ((K_tile_it[i]+1) * K_tile_size >= K[i] && M_it[i] % M_tile_size == 0) // TODO
+                        out_cnt[i] = std::max(1, 2 * (3 + 16) - config_.tRCDWR); // TODO log(8) + 128 / 8  + extra
+
 
                     M_it[i]++;
-                    if (M_it[i] % M_tile_size == 0 || M_it[i] == M[i]) {
-                        in_cnt[i] = 1; //std::max(1, 128/vcuts - 30); // TODO subtract tRP+tRCD
+                    if (M_it[i] % M_tile_size == 0 || M_it[i] == M[i]) { // TODO
+                        in_cnt[i] = std::max(1, 2 * 128/vcuts - config_.tRCDRD); // TODO subtract tRP+tRCD
                         iw_status[i]++;
-
                         M_it[i] = M_tile_size * M_tile_it;
                         K_tile_it[i]++;
 
@@ -462,7 +463,7 @@ void JedecDRAMSystem::ClockTick() {
                             N_it[i] = N_tile_size * (N_tile_it+1);
                             if (N_it[i] >= N[i]) {
                                 N_it[i] = 0;
-                                M_it[i] = M_tile_size * (M_tile_it+1);
+                                M_it[i] = M_tile_size * (M_tile_it + 1);
                                 if (M_it[i] >= M[i]) {
                                     std::cout<<"End of Computation\n";
                                     in_cnt[i] = -1;
@@ -474,6 +475,8 @@ void JedecDRAMSystem::ClockTick() {
                 break;
             }
             case 3: {// Finished input
+
+
                 if (in_cnt[i] != -1) {
                     in_cnt[i]--;
                     if (in_cnt[i] == 0)

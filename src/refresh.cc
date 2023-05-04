@@ -27,7 +27,7 @@ void Refresh::ClockTick() {
 }
 
 bool Refresh::pim_refresh_coming() {
-    return refresh_interval_ - (clk_ % refresh_interval_)  < 40;
+    return refresh_interval_ - (clk_ % refresh_interval_)  < 80;
 }
 
 void Refresh::InsertRefresh() {
