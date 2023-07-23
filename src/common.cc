@@ -45,8 +45,14 @@ std::istream& operator>>(std::istream& is, Transaction& trans) {
     std::string mem_op;
     is >> std::hex >> trans.addr >> mem_op >> std::dec >> trans.added_cycle;
     // std::cout<<"Transaction being read: "<<std::hex<<trans.addr<<'\t'<<mem_op<<std::dec<<'\t'<<trans.added_cycle<<'\n';
-    trans.is_write = write_types.count(mem_op) == 1;
-    trans.is_pim = pim_types.count(mem_op) == 1;
+    int w_cnt = write_types.count(mem_op);
+    int pim_cnt = pim_types.count(mem_op);
+    if (w_cnt == 0 && pim_cnt == 0)
+        trans.active = false;
+    else
+        trans.active = true;
+    trans.is_write = w_cnt == 1;
+    trans.is_pim = pim_cnt == 1;
 
 
     return is;

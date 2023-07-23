@@ -16,6 +16,7 @@ Refresh::Refresh(const Config &config, ChannelState &channel_state)
     } else {  // default refresh scheme: RANK STAGGERED
         refresh_interval_ = config_.tREFI / config_.ranks;
     }
+    std::cout<<"ref interval: "<<refresh_interval_<< std::endl;
 }
 
 void Refresh::ClockTick() {
@@ -27,7 +28,7 @@ void Refresh::ClockTick() {
 }
 
 bool Refresh::pim_refresh_coming() {
-    return refresh_interval_ - (clk_ % refresh_interval_)  < 80;
+    return refresh_interval_ - (std::max(0, (int)clk_ - 1) % refresh_interval_)  < config_.tRCDRD + 5; //128 + config_.tRCD + config_.tFAW;
 }
 
 void Refresh::InsertRefresh() {

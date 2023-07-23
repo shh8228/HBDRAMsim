@@ -37,7 +37,7 @@ Controller::Controller(int channel, const Config &config, const Timing &timing)
 #ifdef CMD_TRACE
     std::string trace_file_name = config_.output_prefix + "ch_" +
                                   std::to_string(channel_id_) + "cmd.trace";
-    std::cout << "Command Trace write to " << trace_file_name << std::endl;
+    // std::cout << "Command Trace write to " << trace_file_name << std::endl;
     cmd_trace_.open(trace_file_name, std::ofstream::out);
 #endif  // CMD_TRACE
 }
@@ -81,11 +81,12 @@ void Controller::ClockTick() {
     }
 
     // cannot find a refresh related command or there's no refresh
+
     if (!cmd.IsValid()) {
         cmd = cmd_queue_.GetCommandToIssue();
     }
 
-    if (pim_cmds_.empty()) {
+    if (cmd.IsRefresh() || (rd_w_cmds_.empty() && rd_in_cmds_.empty() && wr_cmds_.empty())) {
 
         if (cmd.IsValid()) {
             IssueCommand(cmd);
@@ -103,14 +104,64 @@ void Controller::ClockTick() {
         }
     }
     else {
+        // TODO if second == 0, issue and set cmd_issue true. else, decrement by 1.
         cmd_issued = true;
-        for (auto it = pim_cmds_.begin(); it != pim_cmds_.end(); ) {
-            std::cout<<*it<<std::endl;
-            IssueCommand(*it);
-            it = pim_cmds_.erase(it);
+        for (auto it = rd_w_cmds_.begin(); it != rd_w_cmds_.end(); ) {
+            Command ready_cmd;
+            if (it->cmd_type == CommandType::PIM_ACTIVATE) {
+                Command rd_cmd = Command(CommandType::PIM_READ, it->addr, it->hex_addr);
+                ready_cmd = GetReadyCommand(rd_cmd, clk_);
+            }
+            else if (it->cmd_type == CommandType::PRECHARGE)
+                ready_cmd = *it;
+            else
+                ready_cmd = GetReadyCommand(*it, clk_);
+
+
+            if(ready_cmd.IsValid() && ready_cmd.cmd_type == it->cmd_type) {
+                IssueCommand(*it);
+                it = rd_w_cmds_.erase(it); // TODO it++ when not erased
+            }
+            else it++;
+
+        }
+        int i = 0;
+        for (auto it = rd_in_cmds_.begin(); it != rd_in_cmds_.end(); ) {
+            // std::cout<<*it<<std::endl;
+            Command ready_cmd;
+            if (it->cmd_type == CommandType::PIM_ACTIVATE) {
+                Command rd_cmd = Command(CommandType::PIM_READ, it->addr, it->hex_addr);
+                ready_cmd = GetReadyCommand(rd_cmd, clk_);
+            }
+            else
+                ready_cmd = GetReadyCommand(*it, clk_);
+
+            if(ready_cmd.IsValid() && ready_cmd.cmd_type == it->cmd_type && clk_ >= release_time[i]) {
+                IssueCommand(*it);
+                it = rd_in_cmds_.erase(it); // TODO it++ when not erased
+                release_time.erase(release_time.begin() + i);
+            }
+            else {
+                it++;
+                i++;
+            }
+        }
+        for (auto it = wr_cmds_.begin(); it != wr_cmds_.end(); ) {
+            Command ready_cmd;
+            if (it->cmd_type == CommandType::PIM_ACTIVATE) {
+                Command wr_cmd = Command(CommandType::PIM_WRITE, it->addr, it->hex_addr);
+                ready_cmd = GetReadyCommand(wr_cmd, clk_);
+            }
+            else
+                ready_cmd = GetReadyCommand(*it, clk_);
+
+            if(ready_cmd.IsValid() && ready_cmd.cmd_type == it->cmd_type) {
+                IssueCommand(*it);
+                it = wr_cmds_.erase(it); // TODO it++ when not erased
+            }
+            else it++;
         }
     }
-
 
 
     // power updates pt 1
@@ -214,6 +265,7 @@ bool Controller::AddTransaction(Transaction trans) {
         return true;
     }
 }
+
 
 void Controller::ScheduleTransaction() {
     // determine whether to schedule read or write

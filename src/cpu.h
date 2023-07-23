@@ -60,6 +60,7 @@ class TraceBasedCPU : public CPU {
                   const std::string& trace_file);
     ~TraceBasedCPU() { trace_file_.close(); }
     void ClockTick() override;
+    bool turnOff();
 
    private:
     std::ifstream trace_file_;

@@ -47,7 +47,7 @@ Command BankState::GetReadyCommand(const Command& cmd, uint64_t clk) const {
                     required_type = cmd.cmd_type;
                     break;
                 default:
-                    std::cerr << "Unknown type!" << std::endl;
+                    std::cerr << "Unknown type! " << clk << " " << cmd << std::endl;
                     AbruptExit(__FILE__, __LINE__);
                     break;
             }
@@ -74,7 +74,7 @@ Command BankState::GetReadyCommand(const Command& cmd, uint64_t clk) const {
                     required_type = CommandType::PRECHARGE;
                     break;
                 default:
-                    std::cerr << "Unknown type!" << std::endl;
+                    std::cerr << "Unknown type! " << clk << " " << cmd << std::endl;
                     AbruptExit(__FILE__, __LINE__);
                     break;
             }

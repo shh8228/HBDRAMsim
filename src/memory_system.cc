@@ -52,6 +52,10 @@ bool MemorySystem::AddTransaction(uint64_t hex_addr, bool is_write) {
     return dram_system_->AddTransaction(hex_addr, is_write);
 }
 
+bool MemorySystem::turnOff() {
+    return dram_system_->turn_off;
+}
+
 void MemorySystem::PrintStats() const { dram_system_->PrintStats(); }
 
 void MemorySystem::ResetStats() { dram_system_->ResetStats(); }

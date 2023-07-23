@@ -21,6 +21,7 @@ BaseDRAMSystem::BaseDRAMSystem(Config &config, const std::string &output_dir,
       clk_(0) {
     total_channels_ += config_.channels;
 
+    std::cout<<config_.ranks<<config_.banks_per_group<<config_.bankgroups<<std::endl;
 #ifdef ADDR_TRACE
     std::string addr_trace_name = config_.output_prefix + "addr.trace";
     address_trace_.open(addr_trace_name);
@@ -189,7 +190,7 @@ void JedecDRAMSystem::ClockTick() {
         }
     }
 
-    std::cout<<"Clock Cycle "<<clk_<<std::endl;
+    // std::cout<<"Clock Cycle "<<clk_<<std::endl;
 
     //lookup refresh_ in each controller to check refresh countdown
     //if countdown is lower than pim delay, pause issuing pim commands until refresh is done over all ranks
@@ -197,7 +198,12 @@ void JedecDRAMSystem::ClockTick() {
     for (size_t i=0; i<ctrls_.size(); i++) {
         if (ctrls_[i]->pim_refresh_coming()) {
             wait_refresh = true;
-            //std::cout<<clk_ << "\tWait Refresh\n";
+            for (int j=0; j<vcuts*hcuts; j++) {
+                in_act_placed[j] = false;
+                w_act_placed[j] = false;
+                out_act_placed[j] = false;
+            }
+            // std::cout<<clk_ << "\tWait Refresh\n";
         }
     }
 
@@ -212,11 +218,11 @@ void JedecDRAMSystem::ClockTick() {
 
 
     if (!pim_trans_queue_.empty()) { // wait_refresh: when sending an activation cmd. no configured var
-        std::cout<<clk_<<"\tTransaction Queue size: " << pim_trans_queue_.size() << '\n';
         int cut_no;
         int bw_cutNo = 4;
-        int bw_vcuts = 2;
+        int bw_vcuts = 3;
         int bw_hcuts = 1;
+        int bw_mc = 3;
         int bw_Mtile = 4;
         int bw_kernelSize = 5;
         int bw_stride = 5;
@@ -259,13 +265,18 @@ void JedecDRAMSystem::ClockTick() {
             iw_status.clear();
             in_cnt.clear();
             out_cnt.clear();
-            output_ready.clear();
+            in_act_placed.clear();
+            w_act_placed.clear();
+            out_act_placed.clear();
+            output_valid.clear();
 
             address = address >> 1 >> 4 >> 2; // trans_type, cut_no, loadType
             vcuts = 1 << (address & ((1<<bw_vcuts)-1));
             address = address >> bw_vcuts;
             hcuts = 1 << (address & ((1<<bw_hcuts)-1));
             address = address >> bw_hcuts;
+            mc = 1 << (address & ((1<<bw_mc)-1));
+            address = address >> bw_mc;
             M_tile_size = 1 << (address & ((1<<bw_Mtile)-1));
             address = address >> bw_Mtile;
             vcuts_next = 1 << (address & ((1<<bw_vcuts)-1));
@@ -292,9 +303,12 @@ void JedecDRAMSystem::ClockTick() {
             N_out_tile_it.assign(cuts, 0);
             in_pim.assign(cuts, false);
             iw_status.assign(cuts, 0);
-            in_cnt.assign(cuts, -1);
+            in_cnt.assign(cuts, 0);
             out_cnt.assign(cuts, -1);
-            output_ready.assign(cuts, 0);
+            in_act_placed.assign(cuts, false);
+            w_act_placed.assign(cuts, false);
+            out_act_placed.assign(cuts, false);
+            output_valid.assign(cuts, 0);
 
             pim_trans_queue_.erase(it);
         }
@@ -315,7 +329,7 @@ void JedecDRAMSystem::ClockTick() {
                     break;
                 case 1: // K, output
                     base_rows_out[cut_no] = base_row;
-                    std::cout<<base_row<<std::endl;
+                    // std::cout<<base_row<<std::endl;
                     K[cut_no] = dim_value;
                     break;
                 case 2: // N, input
@@ -333,10 +347,16 @@ void JedecDRAMSystem::ClockTick() {
         }
     }
 
+    bool is_in_ref = false;
+    for (int i=0; i<ctrls_.size(); i++) {
+        if (ctrls_[i]->IsInRef())
+            is_in_ref = true;
+    }
+
     int cuts = 0;
     if (vcuts != -1 && hcuts != -1) cuts = vcuts * hcuts;
     for (int i=0; i < cuts; i++) {
-        if (!in_pim[i]) continue;
+        if (!in_pim[i] || is_in_ref) continue;
 
         int vcut_no = i % vcuts;
         int cut_height = config_.channels / hcuts;
@@ -351,14 +371,19 @@ void JedecDRAMSystem::ClockTick() {
 
 
         // TODO
-        int weight_banks_reduce = 2;
-        std::vector<Command> iw_cmds;
+        int weight_banks_reduce = 1;
+        // TODO make vector of pairs
+        // std::vector<std::pair<Command, int>> iw_cmds
+        // auto cmd_pair = std::make_pair(cmd, i);
+        std::vector<Command> in_cmds;
+        std::vector<Command> w_cmds;
 
+        bool output_ready = mc == 16 ? iw_status[i] == 3 : iw_status[i] == 2 || in_cnt[i] == -1;
 
         //std::cout<<iw_status[i]<<"iw_status\n";
         switch (iw_status[i]) {
             case 0: { // Fetching weight
-                int N_tile_size_per_bank = N_tile_size/(cut_width/weight_banks_reduce);
+                int N_tile_size_per_bank = std::min(N[i], (N_tile_size-1)/(cut_width/weight_banks_reduce) + 1);
                 int col_offset = N_tile_it * (N_tile_size_per_bank * ((K[i]-1) / K_tile_size + 1)) + K_tile_it[i] * N_tile_size_per_bank + N_it[i] % N_tile_size; // N_it incremented by N_tile_size when N_it % N_tile_size_per_bank == 0 (but not with N_tile_size)
                 for (int j=0; j<cut_height; j++) {
                     for (int k=0; k<cut_width/weight_banks_reduce; k++) {
@@ -369,32 +394,42 @@ void JedecDRAMSystem::ClockTick() {
                         bk = bk % config_.banks_per_group;
                         Address addr = Address(ch, 0, bg, bk, base_rows_w[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
                         uint64_t hex_addr = config_.AddressUnmapping(addr);
-                        CommandType cmd_type = (addr.column + 1) % ((config_.columns / config_.BL) / weight_banks_reduce) == 0 ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
+                        CommandType cmd_type = (addr.column + 1) % (std::min(N[i], ((128 / config_.banks) * weight_banks_reduce))) == 0 ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ; // TODO
                         Command cmd = Command(cmd_type, addr, hex_addr);
                         Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
                         if (!ready_cmd.IsValid()) {
-                            // std::cout<<"Invalid Command: "<<ready_cmd<<std::endl;
-                            iw_cmds.clear();
+                            //std::cout<<"Invalid Command: "<<ready_cmd<<std::endl;
+                            w_cmds.clear();
                             break;
                         }
                         else {
-                            iw_cmds.push_back(ready_cmd);
-                            if (iw_cmds.begin()->cmd_type != ready_cmd.cmd_type) {
-                                // std::cout<<"Unmatched Commands\n"<<ready_cmd<<std::endl<<*(iw_cmds.begin())<<std::endl; //TODO push back when it is not read or write?
-                                iw_cmds.clear();
+                            w_cmds.push_back(ready_cmd);
+                            if (w_cmds.begin()->cmd_type != ready_cmd.cmd_type) {
+                                // std::cout<<"Unmatched Commands\n"<<ready_cmd<<std::endl<<*(w_cmds.begin())<<std::endl; //TODO push back when it is not read or write?
+                                w_cmds.clear();
                                 break;
                             }
                         }
                     }
-                    if (iw_cmds.empty()) break;
+                    if (w_cmds.empty()) break;
                 }
 
 
-                if (iw_cmds.empty()) break;
+                if (w_cmds.empty()) break;
 
-
-                if (iw_cmds.begin()->cmd_type == CommandType::PIM_READ || iw_cmds.begin()->cmd_type == CommandType::PIM_READ_PRECHARGE) {
-                    std::cout<<"Fetch Weight\n";
+                if (w_cmds.begin()->cmd_type == CommandType::PIM_ACTIVATE) {
+                    if (w_act_placed[i] || wait_refresh) {
+                        w_cmds.clear();
+                        break;
+                    }
+                    else
+                        w_act_placed[i] = true;
+                }
+                else {
+                    if (w_cmds.begin()->cmd_type == CommandType::PIM_READ_PRECHARGE) {
+                        w_act_placed[i] = false;
+                    }
+                    // std::cout<<"Fetch Weight\n";
 
                     // increment iterators
                     N_it[i]++;
@@ -410,49 +445,73 @@ void JedecDRAMSystem::ClockTick() {
             case 1: { // Finished weight
                 // wait npu_signals
                 iw_status[i]++;
-
+                if (true) { //N[i]==1) {
+                    for (int j=0; j<iw_status.size(); j++) {
+                        if (iw_status[j] == 0 || iw_status[j] == 3) {
+                            iw_status[i]--;
+                            break;
+                        }
+                    }
+                }
                 break;
             }
             case 2: { // Feeding input
 
                 int col_offset = M_tile_it * (M_tile_size * ((K[i]-1) / K_tile_size + 1)) + K_tile_it[i] * M_current_tile_size + M_it[i] % M_tile_size;
                 for (int j=0; j<cut_height; j++) {
-                    // TODO offset must be divided by row_width/dev_width
-                    int ch = hcut_no * cut_height + j;
-                    int bk = vcut_no * cut_width;
-                    int bg = bk / config_.banks_per_group;
-                    bk = bk % config_.banks_per_group;
-                    Address addr = Address(ch, 0, bg, bk, base_rows_in[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
-                    uint64_t hex_addr = config_.AddressUnmapping(addr);
-                    CommandType cmd_type = addr.column == config_.columns / config_.BL - 1  || M_it[i] + 1 == M[i] ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
-                    Command cmd = Command(cmd_type, addr, hex_addr);
-                    Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
-                    if (!ready_cmd.IsValid()) {
-                        iw_cmds.clear();
-                        break;
-                    }
-                    else {
-                        iw_cmds.push_back(ready_cmd);
-                        if (iw_cmds.begin()->cmd_type != ready_cmd.cmd_type) {
-                            iw_cmds.clear();
+                    for (int k=0; k<mc; k++) {
+                        // TODO offset must be divided by row_width/dev_width
+                        int ch = hcut_no * cut_height + j;
+                        int bk = vcut_no * cut_width + k*(cut_width/mc);
+                        int bg = bk / config_.banks_per_group;
+                        bk = bk % config_.banks_per_group;
+                        Address addr = Address(ch, 0, bg, bk, base_rows_in[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
+                        uint64_t hex_addr = config_.AddressUnmapping(addr);
+                        CommandType cmd_type = addr.column == config_.columns / config_.BL - 1  || M_it[i] + 1 == M[i] ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
+                        Command cmd = Command(cmd_type, addr, hex_addr);
+                        Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
+                        if (!ready_cmd.IsValid()) {
+                            in_cmds.clear();
                             break;
+                        }
+                        else {
+                            in_cmds.push_back(ready_cmd);
+                            if (in_cmds.begin()->cmd_type != ready_cmd.cmd_type) {
+                                in_cmds.clear();
+                                break;
+                            }
                         }
                     }
                 }
 
-                if (iw_cmds.empty()) break;
+                if (in_cmds.empty()) break;
 
-                if (iw_cmds.begin()->cmd_type == CommandType::PIM_READ || iw_cmds.begin()->cmd_type == CommandType::PIM_READ_PRECHARGE) {
-                    std::cout<<"Feed Input\n";
+                if (in_cmds.begin()->cmd_type == CommandType::PIM_ACTIVATE) {
+                    if (in_act_placed[i] || wait_refresh) {
+                        in_cmds.clear();
+                        break;
+                    }
+                    else
+                        in_act_placed[i] = true;
+                }
+                else {
+
+                    if (in_cmds.begin()->cmd_type == CommandType::PIM_READ_PRECHARGE) {
+                        in_act_placed[i] = false;
+                    }
+                    // std::cout<<"Feed Input\n";
 
                     assert(M_tile_size > 128/vcuts);
-                    if ((K_tile_it[i]+1) * K_tile_size >= K[i] && M_it[i] % M_tile_size == 0) // TODO
-                        out_cnt[i] = std::max(1, 2 * (3 + 16) - config_.tRCDWR); // TODO log(8) + 128 / 8  + extra
+                    std::cout<<M_tile_size<<std::endl;
 
+                    if ((K_tile_it[i]+1) * K_tile_size >= K[i] && M_it[i] % M_tile_size == 0) { // TODO
+                        out_cnt[i] = std::max(1, config_.tCCD_L * (3 + 16) - config_.tRCDWR); // TODO log(8) + 128 / 8  + extra
+                    }
 
                     M_it[i]++;
+                    // if (N_it[i] == 80) std::cout<<clk_<<" "<<N_it[i]<<" "<<M_it[i]<<" "<<M_tile_size<<" "<<i<<std::endl;
                     if (M_it[i] % M_tile_size == 0 || M_it[i] == M[i]) { // TODO
-                        in_cnt[i] = std::max(1, 2 * 128/vcuts - config_.tRCDRD); // TODO subtract tRP+tRCD
+                        in_cnt[i] = std::max(1, config_.tCCD_L * 128/(vcuts*mc) - config_.tRCDRD); // TODO subtract tRP+tRCD
                         iw_status[i]++;
                         M_it[i] = M_tile_size * M_tile_it;
                         K_tile_it[i]++;
@@ -465,7 +524,7 @@ void JedecDRAMSystem::ClockTick() {
                                 N_it[i] = 0;
                                 M_it[i] = M_tile_size * (M_tile_it + 1);
                                 if (M_it[i] >= M[i]) {
-                                    std::cout<<"End of Computation\n";
+                                    // std::cout<<clk_<<" End of Computation "<<i<<std::endl;
                                     in_cnt[i] = -1;
                                 }
                             }
@@ -475,12 +534,64 @@ void JedecDRAMSystem::ClockTick() {
                 break;
             }
             case 3: {// Finished input
+                if (in_cnt[i] == -1) break;
+                else if (mc == 16) {
 
-
-                if (in_cnt[i] != -1) {
-                    in_cnt[i]--;
-                    if (in_cnt[i] == 0)
+                    in_cnt[i] = std::max(0, in_cnt[i] - 1);
+                    if (in_cnt[i] == 0 && output_valid[i] == 0)
                         iw_status[i] = 0;
+                    break;
+                }
+                else {
+                    in_cnt[i] = std::max(0, in_cnt[i] - 1);
+                    if (in_cnt[i] != 0) break;
+                    bool all_closed = true;
+                    for (int j=0; j<cut_height; j++) {
+                        for (int k=0; k<cut_width/weight_banks_reduce; k++) {
+                            int ch = hcut_no * cut_height + j;
+                            int bk = vcut_no * cut_width + k * weight_banks_reduce;
+                            int bg = bk / config_.banks_per_group;
+                            bk = bk % config_.banks_per_group;
+                            Address addr = Address(ch, 0, bg, bk, 0, 0);
+                            uint64_t hex_addr = config_.AddressUnmapping(addr);
+                            Command cmd = Command(CommandType::PIM_READ, addr, hex_addr);
+                            Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
+                            switch (ready_cmd.cmd_type) {
+                                case CommandType::PIM_READ:
+                                    ready_cmd = Command(CommandType::PRECHARGE, addr, hex_addr);
+                                case CommandType::PRECHARGE:
+                                    w_cmds.push_back(ready_cmd);
+                                    // std::cout<<clk_<<"\t"<<ready_cmd<<std::endl;
+                                    all_closed = false;
+                                    break;
+
+                                case CommandType::SIZE:
+                                    all_closed = false;
+                                    break;
+
+                                case CommandType::PIM_ACTIVATE:
+                                    break;
+
+                                default:
+                                    AbruptExit(__FILE__, __LINE__);
+                                    break;
+                            }
+                        }
+                    }
+                    if (all_closed) {
+                        iw_status[i] = 0;
+                        if (true) { //N[i]==1) {
+                            for (int j=0; j<iw_status.size(); j++) {
+                                if (iw_status[j] == 2) {
+                                    iw_status[i] = 3;
+                                    break;
+                                }
+                            }
+                        }
+                        if (iw_status[i] == 0 && out_act_placed[i]) out_act_placed[i] = false;
+                    }
+
+
                 }
                 break;
             }
@@ -492,75 +603,117 @@ void JedecDRAMSystem::ClockTick() {
         // TODO simulate npu_signal
 
 
-        if (out_cnt[i] == 0) output_ready[i]++;
+        if (out_cnt[i] == 0) output_valid[i]++;
         if (out_cnt[i] != -1) out_cnt[i]--;
 
 
         std::vector<Command> out_cmds;
 
-        if (output_ready[i] > 0) {
-            int vcut_out_no = (vcut_no + N_out_tile_it[i]) % vcuts; // relates to channel number
-            int M_out_tile_it = M_out_it[i] / M_tile_size;
-            int M_out_current_tile_size = M[i] < M_tile_size * (M_out_tile_it + 1) ? M[i] % M_tile_size : M_tile_size;
-            int N_tile_num = (N[i]-1) / N_tile_size + 1;
+
+        bool out_enable = cut_height / vcuts > 0 || vcut_no % 2 == 0;
+        if (output_valid[i] > 0 && output_ready && out_enable) {
+            int vcut_out_no = M[i] == 1 ? vcut_no : vcuts == 16 ? vcut_no / 2 : (vcut_no + N_out_tile_it[i]) % vcuts; // relates to channel number
+            int M_tile_size_out = N[i] == 1 ? M_tile_size*mc / 128 : M_tile_size;
+            int M_out_tile_it = M_out_it[i] / M_tile_size_out;
+            int M_out = N[i] == 1 ? std::max(1, M[i]*mc / 128) : M[i];
+            int M_out_current_tile_size = M_out < M_tile_size_out * (M_out_tile_it + 1) ? M_out % M_tile_size_out : M_tile_size_out;
+            int N_out = N[i] == 1 ? 128 : N[i];
+            int N_tile_size_out = N[i] == 1 ? 128 : N_tile_size;
+            int N_tile_num = (N[i]-1) / N_tile_size_out + 1;
             int N_tile_num_ch = (N_tile_num) / vcuts; // varies by channels to be accessed
             N_tile_num_ch += N_tile_num % vcuts > N_out_tile_it[i] % vcuts ? 1 : 0;
             int N_tile_it_ch = N_out_tile_it[i] / vcuts;
-            int col_offset = M_out_tile_it * (M_tile_size * N_tile_num_ch) + N_tile_it_ch * M_out_current_tile_size + M_out_it[i] % M_tile_size;
+            int col_offset = M_out_tile_it * (M_tile_size_out * N_tile_num_ch) + N_tile_it_ch * M_out_current_tile_size + M_out_it[i] % M_tile_size_out;
 
-            for (int j=0; j<cut_height / vcuts; j++) {
+            int cut_height_out = cut_height < vcuts ? 1 : cut_height / vcuts;
+            for (int j=0; j<cut_height_out; j++) {
                 // TODO offset must be divided by row_width/dev_width
-                int ch = hcut_no * cut_height + vcut_out_no * (cut_height / vcuts) + j;
-                int bk = vcut_no * cut_width + 1;
-                int bg = bk / config_.banks_per_group;
-                bk = bk % config_.banks_per_group;
-                Address addr = Address(ch, 0, bg, bk, base_rows_out[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
-                uint64_t hex_addr = config_.AddressUnmapping(addr);
-                CommandType cmd_type = addr.column == config_.columns / config_.BL - 1 ? CommandType::PIM_WRITE_PRECHARGE : CommandType::PIM_WRITE;
-                Command cmd = Command(cmd_type, addr, hex_addr);
-                Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
-                if (!ready_cmd.IsValid()) {
-                    out_cmds.clear();
-                    break;
-                }
-                else {
-                    out_cmds.push_back(ready_cmd);
-                    if (out_cmds.begin()->cmd_type != ready_cmd.cmd_type) {
+                int ch = hcut_no * cut_height + vcut_out_no * cut_height_out + j;
+                int k_bound = M[i] == 1 || N[i] == 1 || true ? mc : 1; // TODO M[i]==1? systolic effect
+                for (int k=0; k<k_bound; k++) {
+                    int bk = vcut_no * cut_width + k*(cut_width/mc);
+                    if (N[i] != 1) bk++;
+                    int bg = bk / config_.banks_per_group;
+                    bk = bk % config_.banks_per_group;
+                    Address addr = Address(ch, 0, bg, bk, base_rows_out[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
+                    uint64_t hex_addr = config_.AddressUnmapping(addr);
+                    CommandType cmd_type = addr.column == config_.columns / config_.BL - 1 || M_out_it[i] + 1 == M_out ? CommandType::PIM_WRITE_PRECHARGE : CommandType::PIM_WRITE;
+                    Command cmd = Command(cmd_type, addr, hex_addr);
+                    Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
+
+
+                    if (!ready_cmd.IsValid()) {
                         out_cmds.clear();
                         break;
                     }
+                    else {
+                        out_cmds.push_back(ready_cmd);
+                        if (out_cmds.begin()->cmd_type != ready_cmd.cmd_type) {
+                            out_cmds.clear();
+                            break;
+                        }
+                    }
                 }
+                if (out_cmds.empty()) break;
             }
 
-            if (!out_cmds.empty() && (out_cmds.begin()->cmd_type == CommandType::PIM_WRITE || out_cmds.begin()->cmd_type == CommandType::PIM_WRITE_PRECHARGE)) {
-                std::cout<<"Write Output\n";
+            if (!out_cmds.empty()) {
+                if (out_cmds.begin()->cmd_type == CommandType::PIM_ACTIVATE) {
+                    if (out_act_placed[i] || wait_refresh) {
+                        out_cmds.clear();
+                    }
+                    else {
+                        out_act_placed[i] = true;
+                    }
+                }
+                else {
+                    if (out_cmds.begin()->cmd_type == CommandType::PIM_WRITE_PRECHARGE) {
+                        out_act_placed[i] = false;
+                    }
+                // std::cout<<"Write Output\n";
 
-                M_out_it[i]++;
-                if (M_out_it[i] % M_tile_size == 0 || M_out_it[i] == M[i]) {
-                    M_out_it[i] = M_tile_size * M_out_tile_it;
-                    N_out_tile_it[i]++;
-                    if (N_out_tile_it[i] * N_tile_size >= N[i]) {
-                        N_out_tile_it[i] = 0;
-                        M_out_it[i] = M_tile_size * (M_out_tile_it+1);
-                        if (M_out_it[i] >= M[i]) {
-                            assert(in_cnt[i] == -1);
-                            std::cout<<"Output Exhausted. Turn off PIM mode.\n";
-                            in_pim[i] = false;
+                    M_out_it[i]++;
+                    // std::cout<<clk_<<" "<<i<<" "<<M_out_it[i]<<" "<<N_out_tile_it[i]<<std::endl;
+                    if (M_out_it[i] % M_tile_size_out == 0 || M_out_it[i] == M_out) {
+                        M_out_it[i] = M_tile_size_out * M_out_tile_it;
+                        N_out_tile_it[i]++;
+                        if (N_out_tile_it[i] * N_tile_size_out >= N_out) {
+                            N_out_tile_it[i] = 0;
+                            M_out_it[i] = M_tile_size_out * (M_out_tile_it+1);
+                            if (M_out_it[i] >= M_out) {
+                                assert(in_cnt[i] == -1);
+                                // std::cout<<"Output Exhausted. Turn off PIM mode.\n";
+                                in_pim[i] = false;
+                                if (cut_height < vcuts) in_pim[i+1] = false;
+                                turn_off = true;
+                                for (size_t j = 0; j < in_pim.size(); j++) {
+                                    // std::cout<<clk_<< " "<<in_pim[j]<<" " << M_out_it[j]<<" "<<N_out_tile_it[j]<<" "<<iw_status[j]<<std::endl;
+                                    if (in_pim[j]) turn_off = false;
+                                }
+                            }
+
                         }
 
+                        output_valid[i]--;
+                        if (cut_height < vcuts) output_valid[i+1]--;
+                        // Output Tile Finished
                     }
-
-                    output_ready[i]--;
-                    // Output Tile Finished
                 }
             }
 
         }
-        for (auto& it: iw_cmds) {
-            ctrls_[it.Channel()]->pim_cmds_.push_back(it);
+        for (auto& it: w_cmds) {
+               // std::cout<<clk_<<" "<<it<<std::endl;
+            ctrls_[it.Channel()]->rd_w_cmds_.push_back(it);
+        }
+        for (auto& it: in_cmds) {
+            ctrls_[it.Channel()]->rd_in_cmds_.push_back(it);
+            int release_time_ = clk_;
+            if (it.cmd_type == CommandType::PIM_ACTIVATE) release_time_ += 0;  // + (it.Channel() % cut_height)*config_.tCCD_S); //TODO
+            ctrls_[it.Channel()]->release_time.push_back(release_time_);
         }
         for (auto& it: out_cmds) {
-            ctrls_[it.Channel()]->pim_cmds_.push_back(it);
+            ctrls_[it.Channel()]->wr_cmds_.push_back(it);
         }
 
     }

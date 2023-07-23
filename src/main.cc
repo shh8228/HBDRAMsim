@@ -63,6 +63,10 @@ int main(int argc, const char **argv) {
 
     for (uint64_t clk = 0; clk < cycles; clk++) {
         cpu->ClockTick();
+        if (((TraceBasedCPU*) cpu)->turnOff()) {
+            std::cout<<"Turn off PIM"<<std::endl;
+            break;
+        }
     }
     cpu->PrintStats();
 

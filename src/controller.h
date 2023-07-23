@@ -38,10 +38,14 @@ class Controller {
     std::pair<uint64_t, int> ReturnDoneTrans(uint64_t clock);
     Command GetReadyCommand(Command& cmd, uint64_t clk);
     bool pim_refresh_coming();
+    bool IsInRef() { return cmd_queue_.IsInRef(); };
 
     int channel_id_;
 
-    std::vector<Command> pim_cmds_;
+    std::vector<Command> rd_in_cmds_;
+    std::vector<Command> rd_w_cmds_;
+    std::vector<Command> wr_cmds_;
+    std::vector<int> release_time;
 
    private:
     uint64_t clk_;

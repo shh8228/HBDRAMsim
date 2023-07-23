@@ -25,6 +25,7 @@ class CommandQueue {
     bool AddCommand(Command cmd);
     bool QueueEmpty() const;
     int QueueUsage() const;
+    bool IsInRef() { return is_in_ref_; };
     std::vector<bool> rank_q_empty;
 
    private:
