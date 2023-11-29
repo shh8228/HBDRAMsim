@@ -11,7 +11,7 @@ def gen_pim_trace(op, size, trace_file):
     fout = open(trace_file, 'w')
     dev_w = 8 # in bytes
     for i in range(size*(2**10)/dev_w):
-        fout.write('\t'.join([hex(int(i*dev_w)), op, str(i)]) + '\n')
+        fout.write('\t'.join([hex(int(32*i)), op, str(i)]) + '\n')
 
 
 

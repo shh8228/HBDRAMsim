@@ -28,7 +28,10 @@ void Refresh::ClockTick() {
 }
 
 bool Refresh::pim_refresh_coming() {
-    return refresh_interval_ - (std::max(0, (int)clk_ - 1) % refresh_interval_)  < config_.tRCDRD + 5; //128 + config_.tRCD + config_.tFAW;
+    return refresh_interval_ - (std::max(0, (int)clk_ - 1) % refresh_interval_)  < config_.tRAS + 3; //128 + config_.tRCD + config_.tFAW;
+}
+bool Refresh::pim_refresh_coming2() {
+    return refresh_interval_ - (std::max(0, (int)clk_ - 1) % refresh_interval_)  < 3; //128 + config_.tRCD + config_.tFAW;
 }
 
 void Refresh::InsertRefresh() {

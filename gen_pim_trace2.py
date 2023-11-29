@@ -11,7 +11,7 @@ def gen_pim_trace(workload, trace_file):
     fin = open(workload, 'r')
     fout = open(trace_file, 'w')
     line = fin.readline()
-    cutV, cutH, tile_M, post_delay, mc = eval(line)
+    cutV, cutH, tile_M, post_delay, mcf, ucf, df = eval(line)
     # print(cutV, cutH, tile_M, post_delay)
 
     exp = 5
@@ -22,8 +22,14 @@ def gen_pim_trace(workload, trace_file):
     exp += 3
     cutaddr += math.log(cutH, 2) * (2**exp)
     exp += 1
-    cutaddr += math.log(mc, 2) * (2**exp)
+    cutaddr += math.log(mcf, 2) * (2**exp)
     exp += 3
+    cutaddr += math.log(ucf, 2) * (2**exp)
+    exp += 3
+
+    cutaddr += df * (2**exp)
+    exp += 1
+
     cutaddr += math.log(tile_M, 2) * (2**exp)
 
     loadaddrs = []
@@ -40,7 +46,15 @@ def gen_pim_trace(workload, trace_file):
             exp += 4
             loadaddr += j * (2**exp)
             exp += 2
-            loadaddr += dim * (2**exp)
+            if (dims[2] == 1): # N[i] == 1 (mcf*ucf == 16)
+                if (j == 0):
+                    loadaddr += max(1, dim/mcf) * (2**exp)
+                elif (j == 1):
+                    loadaddr += max(1, dim/ucf) * (2**exp)
+                else:
+                    loadaddr += dim*ucf * (2**exp)
+            else:
+                loadaddr += dim * (2**exp)
             exp += 32
             if (j==0):
                 loadaddr += (max((dims[0]*dims[2])/2048, (dims[0]*dims[1])/2048) + 1) * (2**exp)
@@ -74,7 +88,7 @@ if __name__ == "__main__":
         for line in lines:
             line = line.strip()
             model, n_heads, d_head, _ = line.split(' ')
-            for t in ["/SUM/", "/multibatch_GEN/", "/GEN/"]:
+            for t in ["/SUM/"] + ["/GEN_mcf" + str(i) + '/' for i in [1, 2, 4, 8, 16]]:
                 workloads_path = "workloads/" + model + t
                 trace_path = "traces/" + model + t
                 flist = os.listdir(workloads_path)

@@ -13,6 +13,7 @@ class Refresh {
     Refresh(const Config& config, ChannelState& channel_state);
     void ClockTick();
     bool pim_refresh_coming();
+    bool pim_refresh_coming2();
 
    private:
     uint64_t clk_;

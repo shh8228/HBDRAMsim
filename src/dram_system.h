@@ -76,7 +76,10 @@ class JedecDRAMSystem : public BaseDRAMSystem {
     Command GetReadyCommandPIM(Transaction trans, CommandType type);
     int vcuts = -1;
     int hcuts = -1;
+    int mcf = 1;
+    int ucf = 1;
     int mc = 1;
+    int df = -1;
     int vcuts_next = -1;
     int hcuts_next = -1;
     // TODO now it is same with all cuts, but it should be not
@@ -100,6 +103,8 @@ class JedecDRAMSystem : public BaseDRAMSystem {
     std::vector<int> output_valid;
     std::vector<int> in_cnt;
     std::vector<int> out_cnt;
+    std::vector<int> vpu_cnt;
+    std::vector<int> ucf_cnt;
     std::vector<bool> in_act_placed;
     std::vector<bool> w_act_placed;
     std::vector<bool> out_act_placed;

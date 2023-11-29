@@ -75,6 +75,7 @@ Command BankState::GetReadyCommand(const Command& cmd, uint64_t clk) const {
                     break;
                 default:
                     std::cerr << "Unknown type! " << clk << " " << cmd << std::endl;
+                    std::cout << "Unknown type! " << clk << " " << cmd << std::endl;
                     AbruptExit(__FILE__, __LINE__);
                     break;
             }

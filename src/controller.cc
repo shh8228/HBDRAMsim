@@ -107,9 +107,13 @@ void Controller::ClockTick() {
         // TODO if second == 0, issue and set cmd_issue true. else, decrement by 1.
         cmd_issued = true;
         for (auto it = rd_w_cmds_.begin(); it != rd_w_cmds_.end(); ) {
+            CommandType act_type = CommandType::PIM_ACTIVATE;
+            CommandType read_type = CommandType::PIM_READ;
+            CommandType readp_type = CommandType::PIM_READ_PRECHARGE;
+
             Command ready_cmd;
-            if (it->cmd_type == CommandType::PIM_ACTIVATE) {
-                Command rd_cmd = Command(CommandType::PIM_READ, it->addr, it->hex_addr);
+            if (it->cmd_type == act_type) {
+                Command rd_cmd = Command(read_type, it->addr, it->hex_addr);
                 ready_cmd = GetReadyCommand(rd_cmd, clk_);
             }
             else if (it->cmd_type == CommandType::PRECHARGE)
@@ -118,16 +122,20 @@ void Controller::ClockTick() {
                 ready_cmd = GetReadyCommand(*it, clk_);
 
 
-            if(ready_cmd.IsValid() && ready_cmd.cmd_type == it->cmd_type) {
-                IssueCommand(*it);
+            if (ready_cmd.IsValid() && ready_cmd.cmd_type == it->cmd_type) {
+                if (!(channel_state_.IsRefreshWaiting() && it->cmd_type == act_type)) {
+
+                    IssueCommand(*it);
+                }
                 it = rd_w_cmds_.erase(it); // TODO it++ when not erased
             }
             else it++;
 
         }
         int i = 0;
+        int j = 0;
         for (auto it = rd_in_cmds_.begin(); it != rd_in_cmds_.end(); ) {
-            // std::cout<<*it<<std::endl;
+            // std::cout<<clk_<<" "<<j<<" "<<*it<<std::endl;
             Command ready_cmd;
             if (it->cmd_type == CommandType::PIM_ACTIVATE) {
                 Command rd_cmd = Command(CommandType::PIM_READ, it->addr, it->hex_addr);
@@ -137,7 +145,10 @@ void Controller::ClockTick() {
                 ready_cmd = GetReadyCommand(*it, clk_);
 
             if(ready_cmd.IsValid() && ready_cmd.cmd_type == it->cmd_type && clk_ >= release_time[i]) {
-                IssueCommand(*it);
+                if (!(channel_state_.IsRefreshWaiting() && it->cmd_type == CommandType::PIM_ACTIVATE)) {
+                    IssueCommand(*it);
+                }
+                // std::cout<<clk_<<" erase "<<std::endl;
                 it = rd_in_cmds_.erase(it); // TODO it++ when not erased
                 release_time.erase(release_time.begin() + i);
             }
@@ -145,6 +156,7 @@ void Controller::ClockTick() {
                 it++;
                 i++;
             }
+            j++;
         }
         for (auto it = wr_cmds_.begin(); it != wr_cmds_.end(); ) {
             Command ready_cmd;
@@ -156,11 +168,18 @@ void Controller::ClockTick() {
                 ready_cmd = GetReadyCommand(*it, clk_);
 
             if(ready_cmd.IsValid() && ready_cmd.cmd_type == it->cmd_type) {
-                IssueCommand(*it);
-                it = wr_cmds_.erase(it); // TODO it++ when not erased
+                if (!(channel_state_.IsRefreshWaiting() && it->cmd_type == CommandType::PIM_ACTIVATE)) {
+                    IssueCommand(*it);
+                    it = wr_cmds_.erase(it); // TODO it++ when not erased
+                    if (wr_multitenant) break;
+                }
+                else
+                    it = wr_cmds_.erase(it); // TODO it++ when not erased
+
             }
             else it++;
         }
+        // rd_in_cmds_.clear(); //used in MT
     }
 
 
@@ -334,7 +353,9 @@ void Controller::IssueCommand(const Command &cmd) {
         simple_stats_.AddValue("write_latency", wr_lat);
         pending_wr_q_.erase(it);
     }
+
     // must update stats before states (for row hits)
+
     UpdateCommandStats(cmd);
     channel_state_.UpdateTimingAndStates(cmd, clk_);
 }
@@ -400,18 +421,18 @@ void Controller::UpdateCommandStats(const Command &cmd) {
             break;
         case CommandType::PIM_READ:
         case CommandType::PIM_READ_PRECHARGE:
-            simple_stats_.Increment("num_read_cmds");
+            simple_stats_.Increment("num_pim_read_cmds");
             if (channel_state_.RowHitCount(cmd.Rank(), cmd.Bankgroup(),
                                            cmd.Bank()) != 0) {
-                simple_stats_.Increment("num_read_row_hits");
+                simple_stats_.Increment("num_pim_read_row_hits");
             }
             break;
         case CommandType::PIM_WRITE:
         case CommandType::PIM_WRITE_PRECHARGE:
-            simple_stats_.Increment("num_write_cmds");
+            simple_stats_.Increment("num_pim_write_cmds");
             if (channel_state_.RowHitCount(cmd.Rank(), cmd.Bankgroup(),
                                            cmd.Bank()) != 0) {
-                simple_stats_.Increment("num_write_row_hits");
+                simple_stats_.Increment("num_pim_write_row_hits");
             }
             break;
         case CommandType::PIM_ACTIVATE:

@@ -38,6 +38,7 @@ class Controller {
     std::pair<uint64_t, int> ReturnDoneTrans(uint64_t clock);
     Command GetReadyCommand(Command& cmd, uint64_t clk);
     bool pim_refresh_coming();
+    bool pim_refresh_coming2() { return refresh_.pim_refresh_coming2();};
     bool IsInRef() { return cmd_queue_.IsInRef(); };
 
     int channel_id_;
@@ -46,6 +47,7 @@ class Controller {
     std::vector<Command> rd_w_cmds_;
     std::vector<Command> wr_cmds_;
     std::vector<int> release_time;
+    bool wr_multitenant = false;
 
    private:
     uint64_t clk_;

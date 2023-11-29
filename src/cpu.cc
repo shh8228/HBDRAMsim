@@ -79,7 +79,7 @@ void TraceBasedCPU::ClockTick() {
         }
         if (trans_.added_cycle <= clk_ && trans_.active) {
             if (!trans_.is_pim) {
-                std::cout<< trans_<<std::endl;
+                //std::cout<< trans_<<std::endl;
 				get_next_ = memory_system_.WillAcceptTransaction(trans_.addr,
                 	                                             trans_.is_write);
 				if (get_next_) memory_system_.AddTransaction(trans_.addr, trans_.is_write);

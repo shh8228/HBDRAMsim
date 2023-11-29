@@ -210,6 +210,8 @@ void Config::InitPowerParams() {
         VDD * (IDD0 * tRC - (IDD3N * tRAS + IDD2N * tRP)) * devices;
     read_energy_inc = VDD * (IDD4R - IDD3N) * burst_cycle * devices;
     write_energy_inc = VDD * (IDD4W - IDD3N) * burst_cycle * devices;
+    pim_read_energy_inc = VDD * 0.55*(IDD4R - IDD3N) * burst_cycle * devices;
+    pim_write_energy_inc = VDD * (IDD4W - IDD3N) * burst_cycle * devices;
     ref_energy_inc = VDD * (IDD5AB - IDD3N) * tRFC * devices;
     refb_energy_inc = VDD * (IDD5PB - IDD3N) * tRFCb * devices;
     // the following are added per cycle

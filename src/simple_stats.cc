@@ -29,6 +29,14 @@ SimpleStats::SimpleStats(const Config& config, int channel_id)
              "Number of write row buffer hits");
     InitStat("num_read_cmds", "counter", "Number of READ/READP commands");
     InitStat("num_write_cmds", "counter", "Number of WRITE/WRITEP commands");
+
+    InitStat("num_pim_write_buf_hits", "counter", "Number of write buffer hits");
+    InitStat("num_pim_read_row_hits", "counter", "Number of read row buffer hits");
+    InitStat("num_pim_write_row_hits", "counter",
+             "Number of write row buffer hits");
+    InitStat("num_pim_read_cmds", "counter", "Number of READ/READP commands");
+    InitStat("num_pim_write_cmds", "counter", "Number of WRITE/WRITEP commands");
+
     InitStat("num_act_cmds", "counter", "Number of ACT commands");
     InitStat("num_pre_cmds", "counter", "Number of PRE commands");
     InitStat("num_ondemand_pres", "counter", "Number of ondemend PRE commands");
@@ -42,6 +50,8 @@ SimpleStats::SimpleStats(const Config& config, int channel_id)
     InitStat("act_energy", "double", "Activation energy");
     InitStat("read_energy", "double", "Read energy");
     InitStat("write_energy", "double", "Write energy");
+    InitStat("pim_read_energy", "double", "Read energy");
+    InitStat("pim_write_energy", "double", "Write energy");
     InitStat("ref_energy", "double", "Refresh energy");
     InitStat("refb_energy", "double", "Refresh-bank energy");
 
@@ -371,6 +381,10 @@ void SimpleStats::UpdateEpochStats() {
         epoch_counters_["num_read_cmds"] * config_.read_energy_inc;
     doubles_["write_energy"] =
         epoch_counters_["num_write_cmds"] * config_.write_energy_inc;
+    doubles_["pim_read_energy"] =
+        epoch_counters_["num_pim_read_cmds"] * config_.pim_read_energy_inc;
+    doubles_["pim_write_energy"] =
+        epoch_counters_["num_pim_write_cmds"] * config_.pim_write_energy_inc;
     doubles_["ref_energy"] =
         epoch_counters_["num_ref_cmds"] * config_.ref_energy_inc;
     doubles_["refb_energy"] =
@@ -401,7 +415,8 @@ void SimpleStats::UpdateEpochStats() {
     calculated_["average_bandwidth"] = avg_bw;
 
     double total_energy = doubles_["act_energy"] + doubles_["read_energy"] +
-                          doubles_["write_energy"] + doubles_["ref_energy"] +
+                          doubles_["write_energy"] + doubles_["pim_read_energy"] +
+                          doubles_["pim_write_energy"] + doubles_["ref_energy"] +
                           doubles_["refb_energy"] + background_energy;
     calculated_["total_energy"] = total_energy;
     calculated_["average_power"] = total_energy / epoch_counters_["num_cycles"];
@@ -435,6 +450,10 @@ void SimpleStats::UpdateFinalStats() {
     doubles_["ref_energy"] = counters_["num_ref_cmds"] * config_.ref_energy_inc;
     doubles_["refb_energy"] =
         counters_["num_refb_cmds"] * config_.refb_energy_inc;
+    doubles_["pim_read_energy"] =
+        epoch_counters_["num_pim_read_cmds"] * config_.pim_read_energy_inc;
+    doubles_["pim_write_energy"] =
+        epoch_counters_["num_pim_write_cmds"] * config_.pim_write_energy_inc;
 
     // vector doubles, update first, then push
     double background_energy = 0.0;
@@ -463,6 +482,7 @@ void SimpleStats::UpdateFinalStats() {
 
     double total_energy = doubles_["act_energy"] + doubles_["read_energy"] +
                           doubles_["write_energy"] + doubles_["ref_energy"] +
+                          doubles_["pim_read_energy"] + doubles_["pim_write_energy"] +
                           doubles_["refb_energy"] + background_energy;
     calculated_["total_energy"] = total_energy;
     calculated_["average_power"] = total_energy / counters_["num_cycles"];
