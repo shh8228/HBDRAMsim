@@ -76,16 +76,19 @@ void Controller::ClockTick() {
 
     bool cmd_issued = false;
     Command cmd;
+
+    // priority 1: refresh command
     if (channel_state_.IsRefreshWaiting()) {
         cmd = cmd_queue_.FinishRefresh();
     }
 
     // cannot find a refresh related command or there's no refresh
-
+    // priority 3: general command
     if (!cmd.IsValid()) {
         cmd = cmd_queue_.GetCommandToIssue();
     }
 
+    // priority 2: pim command
     if (cmd.IsRefresh() || (rd_w_cmds_.empty() && rd_in_cmds_.empty() && wr_cmds_.empty())) {
 
         if (cmd.IsValid()) {
@@ -135,9 +138,9 @@ void Controller::ClockTick() {
         int i = 0;
         int j = 0;
         for (auto it = rd_in_cmds_.begin(); it != rd_in_cmds_.end(); ) {
-            // std::cout<<clk_<<" "<<j<<" "<<*it<<std::endl;
             Command ready_cmd;
             if (it->cmd_type == CommandType::PIM_ACTIVATE) {
+                // std::cout<<clk_<<" "<<j<<" "<<*it<<std::endl;
                 Command rd_cmd = Command(CommandType::PIM_READ, it->addr, it->hex_addr);
                 ready_cmd = GetReadyCommand(rd_cmd, clk_);
             }
@@ -179,7 +182,7 @@ void Controller::ClockTick() {
             }
             else it++;
         }
-        // rd_in_cmds_.clear(); //used in MT
+        //rd_in_cmds_.clear(); //used in MT
     }
 
 

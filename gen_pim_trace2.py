@@ -83,11 +83,11 @@ def gen_pim_trace(workload, trace_file):
 if __name__ == "__main__":
     args = parser.parse_args()
     if eval(args.f):
-        fin_ = open('models', 'r')
+        fin_ = open('models_s', 'r')
         lines = fin_.readlines()
         for line in lines:
             line = line.strip()
-            model, n_heads, d_head, _ = line.split(' ')
+            model = line.split(' ')[0]
             for t in ["/SUM/"] + ["/GEN_mcf" + str(i) + '/' for i in [1, 2, 4, 8, 16]]:
                 workloads_path = "workloads/" + model + t
                 trace_path = "traces/" + model + t

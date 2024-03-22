@@ -427,7 +427,7 @@ void JedecDRAMSystem::ClockTick() {
 //                        if (mc == 16)
 //                            cmd_type =  (addr.column + 1) % ucf == 0 ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
 //                        else
-                            cmd_type = (addr.column + 1) % (std::min(N[i], ((128 / config_.banks) * weight_banks_reduce))) == 0 || (addr.column + 1) % (config_.columns / config_.BL) == 0   ? readp_type : read_type; // TODO
+                            cmd_type = (addr.column + 1) % std::min(N[i], (128 / config_.banks) * weight_banks_reduce) == 0 || (addr.column + 1) % (config_.columns / config_.BL) == 0 ? readp_type : read_type; // TODO
                         Command cmd = Command(cmd_type, addr, hex_addr);
                         Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
                         if (!ready_cmd.IsValid()) {
@@ -498,6 +498,7 @@ void JedecDRAMSystem::ClockTick() {
 
                 int col_offset = M_tile_it * (M_tile_size * ((K[i]-1) / K_tile_size + 1)) + K_tile_it[i] * M_current_tile_size + M_it[i] % M_tile_size;
                 bool mixed = false;
+                Command mixed_cmd;
                 for (int j=0; j<cut_height; j++) {
                     for (int k=0; k<mc; k++) {
                         // TODO offset must be divided by row_width/dev_width
@@ -519,7 +520,15 @@ void JedecDRAMSystem::ClockTick() {
                         else {
                             in_cmds[i].push_back(ready_cmd);
                             if (in_cmds[i].begin()->cmd_type != ready_cmd.cmd_type) {
-                                mixed = true;
+                                if (mixed) {
+                                    if (mixed_cmd.cmd_type != in_cmds[i].begin()->cmd_type && mixed_cmd.cmd_type != ready_cmd.cmd_type) {
+                                        std::cout<<"MIXED 3: "<<mixed_cmd<<*in_cmds[i].begin()<<ready_cmd<<std::endl;
+                                    }
+                                }
+                                else {
+                                    mixed = true;
+                                    mixed_cmd = ready_cmd;
+                                }
 
                             }
                         }
@@ -542,12 +551,16 @@ void JedecDRAMSystem::ClockTick() {
                 if (in_cmds[i].empty()) break;
 
                 if (in_cmds[i].begin()->cmd_type == CommandType::PIM_ACTIVATE) {
-                    if ((!mixed && in_act_placed[i]) || wait_refresh) {
+                    //if ((!mixed && in_act_placed[i]) || wait_refresh) {
+                    if ((in_act_placed[i]) || wait_refresh) {
                         in_cmds[i].clear();
                         break;
                     }
-                    else
+                    else{
                         in_act_placed[i] = true;
+                        // std::cout<<clk_<<" placed"<<i<<std::endl;
+
+                    }
                 }
                 else {
 
