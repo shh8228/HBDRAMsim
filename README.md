@@ -1,23 +1,16 @@
 [![Build Status](https://travis-ci.com/umd-memsys/DRAMsim3.svg?branch=master)](https://travis-ci.com/umd-memsys/DRAMsim3)
 
-# About DRAMsim3
+# HBDRAMsim
 
-DRAMsim3 models the timing paramaters and memory controller behavior for several DRAM protocols such as DDR3, DDR4, LPDDR3, LPDDR4, GDDR5, GDDR6, HBM, HMC, STT-MRAM. It is implemented in C++ as an objected oriented model that includes a parameterized DRAM bank model, DRAM controllers, command queues and system-level interfaces to interact with a CPU simulator (GEM5, ZSim) or trace workloads. It is designed to be accurate, portable and parallel.
-    
-If you use this simulator in your work, please consider cite:
 
-[1] S. Li, Z. Yang, D. Reddy, A. Srivastava and B. Jacob, "DRAMsim3: a Cycle-accurate, Thermal-Capable DRAM Simulator," in IEEE Computer Architecture Letters. [Link](https://ieeexplore.ieee.org/document/8999595)
-
-See [Related Work](#related-work) for more work done with this simulator.
 
 
 ## Building and running the simulator
 
-This simulator by default uses a CMake based build system.
-The advantage in using a CMake based build system is portability and dependency management.
+based on DRAMsim3
+goto link 
+
 We require CMake 3.0+ to build this simulator.
-If `cmake-3.0` is not available,
-we also supply a Makefile to build the most basic version of the simulator.
 
 ### Building
 
@@ -61,28 +54,7 @@ The output can be directed to another directory by `-o` option
 or can be configured in the config file.
 You can control the verbosity in the config file as well.
 
-### Output Visualization
 
-`scripts/plot_stats.py` can visualize some of the output (requires `matplotlib`):
-
-```bash
-# generate histograms from overall output
-python3 scripts/plot_stats dramsim3.json
-
-# or
-# generate time series for a variety stats from epoch outputs
-python3 scripts/plot_stats dramsim3epoch.json
-```
-
-Currently stats from all channels are squashed together for cleaner plotting.
-
-### Integration with other simulators
-
-**Gem5** integration: works with a forked Gem5 version, see https://github.com/umd-memsys/gem5 at `dramsim3` branch for reference.
-
-**SST** integration: see http://git.ece.umd.edu/shangli/sst-elements/tree/dramsim3 for reference. We will try to merge to official SST repo.
-
-**ZSim** integration: see http://git.ece.umd.edu/shangli/zsim/tree/master for reference.
 
 ## Simulator Design
 
