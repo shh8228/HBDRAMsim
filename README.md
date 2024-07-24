@@ -70,6 +70,8 @@ this trace format hinders dynamic execution of memory transactions since the exe
 Especially in Originally in DRAMsim3, 
 
 
+![Alt text](https://github.com/shh8228/HBDRAMsim/blob/master/workflow.jpg)
+
 ```bash
 # help
 ./build/dramsim3main -h
