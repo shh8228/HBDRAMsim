@@ -1,4 +1,3 @@
-[![Build Status](https://travis-ci.com/umd-memsys/DRAMsim3.svg?branch=master)](https://travis-ci.com/umd-memsys/DRAMsim3)
 
 # HBDRAMsim
 
@@ -31,7 +30,97 @@ make -j4
 The build process creates `dramsim3main` and executables in the `build` directory.
 By default, it also creates `libdramsim3.so` shared library in the project root directory.
 
-### Running
+### Running an example workload
+You can immediately run HB-NPU with a sample trace of 128x128x128 matrix multiplication using the below command.
+```bash
+./build/dramsim3main configs/HBM2_8Gb_x128.ini -c 5000000 -t sample.trc
+```
+You can check the simulation results immediately.
+```bash
+3374 End of Computation 0 
+3409 Output Exhausted. Array0 Turn off PIM mode. # Completed operations in 3409 cycles.
+Turn off PIM
+```
+You can see the command trace and statistics in ```dramsim3ch_[0-7]cmd.trace``` and ```dramsim3.txt```.
+Command trace shows the cycles and addresses of executed operations with their command types.
+```bash
+# Loading Weights
+5                  pim_activate           1   0   0   0    0x191      0x0
+19                 pim_read               1   0   0   0    0x191      0x0
+21                 pim_read               1   0   0   0    0x191      0x1
+23                 pim_read               1   0   0   0    0x191      0x2
+25                 pim_read               1   0   0   0    0x191      0x3
+27                 pim_read               1   0   0   0    0x191      0x4
+29                 pim_read               1   0   0   0    0x191      0x5
+31                 pim_read               1   0   0   0    0x191      0x6
+33                 pim_read               1   0   0   0    0x191      0x7
+35                 pim_read               1   0   0   0    0x191      0x8
+37                 pim_read               1   0   0   0    0x191      0x9
+39                 pim_read               1   0   0   0    0x191      0xa
+41                 pim_read               1   0   0   0    0x191      0xb
+43                 pim_read               1   0   0   0    0x191      0xc
+45                 pim_read               1   0   0   0    0x191      0xd
+47                 pim_read               1   0   0   0    0x191      0xe
+49                 pim_read_p             1   0   0   0    0x191      0xf
+# Streaming Inputs
+68                 pim_activate           1   0   0   0      0x0      0x0
+68                 pim_activate           1   0   0   1      0x0      0x0
+68                 pim_activate           1   0   0   2      0x0      0x0
+68                 pim_activate           1   0   0   3      0x0      0x0
+98                 pim_activate           1   0   1   0      0x0      0x0
+98                 pim_activate           1   0   1   1      0x0      0x0
+98                 pim_activate           1   0   1   2      0x0      0x0
+98                 pim_activate           1   0   1   3      0x0      0x0
+128                pim_activate           1   0   2   0      0x0      0x0
+128                pim_activate           1   0   2   1      0x0      0x0
+128                pim_activate           1   0   2   2      0x0      0x0
+128                pim_activate           1   0   2   3      0x0      0x0
+158                pim_activate           1   0   3   0      0x0      0x0
+158                pim_activate           1   0   3   1      0x0      0x0
+158                pim_activate           1   0   3   2      0x0      0x0
+158                pim_activate           1   0   3   3      0x0      0x0
+172                pim_read               1   0   0   0      0x0      0x0
+172                pim_read               1   0   0   1      0x0      0x0
+172                pim_read               1   0   0   2      0x0      0x0
+172                pim_read               1   0   0   3      0x0      0x0
+172                pim_read               1   0   1   0      0x0      0x0
+172                pim_read               1   0   1   1      0x0      0x0
+172                pim_read               1   0   1   2      0x0      0x0
+172                pim_read               1   0   1   3      0x0      0x0
+172                pim_read               1   0   2   0      0x0      0x0
+172                pim_read               1   0   2   1      0x0      0x0
+172                pim_read               1   0   2   2      0x0      0x0
+172                pim_read               1   0   2   3      0x0      0x0
+172                pim_read               1   0   3   0      0x0      0x0
+172                pim_read               1   0   3   1      0x0      0x0
+172                pim_read               1   0   3   2      0x0      0x0
+172                pim_read               1   0   3   3      0x0      0x0
+174                pim_read               1   0   0   0      0x0      0x1
+174                pim_read               1   0   0   1      0x0      0x1
+174                pim_read               1   0   0   2      0x0      0x1
+174                pim_read               1   0   0   3      0x0      0x1
+174                pim_read               1   0   1   0      0x0      0x1
+174                pim_read               1   0   1   1      0x0      0x1
+174                pim_read               1   0   1   2      0x0      0x1
+174                pim_read               1   0   1   3      0x0      0x1
+174                pim_read               1   0   2   0      0x0      0x1
+174                pim_read               1   0   2   1      0x0      0x1
+174                pim_read               1   0   2   2      0x0      0x1
+174                pim_read               1   0   2   3      0x0      0x1
+174                pim_read               1   0   3   0      0x0      0x1
+174                pim_read               1   0   3   1      0x0      0x1
+174                pim_read               1   0   3   2      0x0      0x1
+174                pim_read               1   0   3   3      0x0      0x1
+```
+The command statistics shows the number of pim commands, their row hits, and energy, etc.
+```bash
+num_pim_read_row_hits          =        10094   # Number of read row buffer hits
+...
+num_pim_read_cmds              =        10272   # Number of READ/READP commands
+...
+pim_read_energy                =  1.08472e+06   # Read energy
+```
+### Running a custom workload
 Firstly, you should make workload file of matmul kernel. 
 
 Example of 128x256x1 GEMV with (mcf,ucf) = (2,8) :
@@ -55,10 +144,38 @@ For example, 128x256x512 GEMM kernel workload with 4 multicolumns is:
 
 
 **Second line format**: ```M, K, N``` for MxKxN GEMM kernel; ```M, K, 1``` for GEMV kernel of MxK matrix and Kx1 vector 
-With the workload file you can generate transaction traces that will go into DRAMsim program.
+
+With the workload file you can generate transaction traces that will go into DRAMsim program by running below command.
+It divides and reshapes the operand data and allocates them to the physical address of the bank.
+Then you can now run HB-NPU with the generated trace file like the above.
+```bash
+python gen_pim_trace2.py -f False -w [workload_path]
+./build/dramsim3main configs/HBM2_8Gb_x128.ini -c 5000000 -t sample.trc
+```
 Each trace line in a trace file is composed of memory address, transaction type, and cycle time to execute the transaction.
-However, the management of transactions in DRAMsim3 does not fit into HB-NPU control system because it assumes _one transaction accesses only one channel and one bank_, just as noraml DRAM access.
-HB-NPU accesses several banks in several channel simultaneously. 
+```bash
+0x2f0060	PIM	0 # set variables such as mcf, ucf, dataflow option, etc.
+0xc8800000a000	PIM	1 # set dimension M and physical (starting) address of weight
+0x5020	PIM	2 # set dimension K and physical (starting) address of output
+0x840	PIM	3 # set dimension N and physical (starting) address of input
+0x3	PIM	4 # launch computation
+```
+Unlike the normal DRAM access transactions, PIM transactions are not directly translated to the DRAM commands because the management of transactions in DRAMsim3 does not fit into HB-NPU control system.
+Instead, our transaction address contains the information about the workload to run, physical addresses of matrices, and dataflow configuration, etc and commands are dynamically generated by PIM command scheduler we have implemented.
+We elaborated the simulator design in later section.
+
+
+## Simulator Design
+
+It assumes _one transaction accesses only one channel and one bank_, just as noraml DRAM access but HB-NPU accesses several banks in several channel simultaneously.
+
+PIM command scheduler then stores these informations in registers and generates PIM commands dynamically based on the registers.
+This control scheme is possible because matrix multiplication has regular access pattern unlike the normal DRAM access.
+
+The transaction in first line 
+
+Each channel controller has its own transaction queue and individually manages and generates the commands. (refer to the workflow diagram below.)
+HB-NPU accesses several banks in several channel simultaneously and needs . 
 
 BLSA command generating
 DRAM command added -> different timing constraints, different power calculation -> report
@@ -70,30 +187,6 @@ this trace format hinders dynamic execution of memory transactions since the exe
 Especially in Originally in DRAMsim3, 
 
 <img src="https://github.com/shh8228/HBDRAMsim/blob/master/workflow.jpg" alt="Example Image" width="507" height="643" />
-
-
-```bash
-# help
-./build/dramsim3main -h
-
-# Running random stream with a config file
-./build/dramsim3main configs/DDR4_8Gb_x8_3200.ini --stream random -c 100000 
-
-# Running a trace file
-./build/dramsim3main configs/DDR4_8Gb_x8_3200.ini -c 100000 -t sample_trace.txt
-
-# Running with gem5
---mem-type=dramsim3 --dramsim3-ini=configs/DDR4_4Gb_x4_2133.ini
-
-```
-
-The output can be directed to another directory by `-o` option
-or can be configured in the config file.
-You can control the verbosity in the config file as well.
-
-
-
-## Simulator Design
 
 ### Code Structure
 
