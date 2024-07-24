@@ -7,13 +7,14 @@
 
 ## Building and running the simulator
 
-based on DRAMsim3
-goto link 
-
-We require CMake 3.0+ to build this simulator.
+This simulator has been built based on DRAMsim3.
+Follow the below instructions of DRAMsim3 to build the environment.
+For details, goto link below:
+https://github.com/umd-memsys/DRAMsim3/tree/master
 
 ### Building
 
+We require CMake 3.0+ to build this simulator.
 Doing out of source builds with CMake is recommended to avoid the build files cluttering the main directory.
 
 ```bash
@@ -25,15 +26,49 @@ cmake ..
 # Build dramsim3 library and executables
 make -j4
 
-# Alternatively, build with thermal module enabled
-cmake .. -DTHERMAL=1
-
 ```
 
 The build process creates `dramsim3main` and executables in the `build` directory.
 By default, it also creates `libdramsim3.so` shared library in the project root directory.
 
 ### Running
+Firstly, you should make workload file of matmul kernel. 
+
+Example of 128x256x1 GEMV with (mcf,ucf) = (2,8) :
+```bash
+1, 1, 2048, 8, 2, 8, 1 
+128, 256, 1
+```
+**First line format**: ```1 (fixed), 1 (fixed), Accumulation_buffer_depth, 8 (fixed), mcf, ucf, dataflow_option``` 
+
+Fixed values are reserved for future works that are under the development.
+
+dataflow option is 0 for Weight stationary GEMM kernel, 1 for Input stationary GEMV kernel.
+
+With GEMM kernel workload, you can use the mcf value as the number of multi-columns and should fix ucf as 1.
+
+For example, 128x256x512 GEMM kernel workload with 4 multicolumns is:
+```bash
+1, 1, 2048, 8, 4, 1, 0
+128, 256, 512
+```
+
+
+**Second line format**: ```M, K, N``` for MxKxN GEMM kernel; ```M, K, 1``` for GEMV kernel of MxK matrix and Kx1 vector 
+With the workload file you can generate transaction traces that will go into DRAMsim program.
+Each trace line in a trace file is composed of memory address, transaction type, and cycle time to execute the transaction.
+However, the management of transactions in DRAMsim3 does not fit into HB-NPU control system because it assumes _one transaction accesses only one channel and one bank_, just as noraml DRAM access.
+HB-NPU accesses several banks in several channel simultaneously. 
+
+BLSA command generating
+DRAM command added -> different timing constraints, different power calculation -> report
+refreshing
+
+The other challenge is that DRAM controllers manage the command queue in dynamic way, so the commands can be executed out of order for higher command throughput, which is not problematic in normal access but dependency in PNM operations is not considered.
+Each transaction 
+this trace format hinders dynamic execution of memory transactions since the execution timing is deterministic.
+Especially in Originally in DRAMsim3, 
+
 
 ```bash
 # help
