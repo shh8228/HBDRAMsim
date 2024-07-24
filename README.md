@@ -69,8 +69,8 @@ Each transaction
 this trace format hinders dynamic execution of memory transactions since the execution timing is deterministic.
 Especially in Originally in DRAMsim3, 
 
+<img src="https://github.com/shh8228/HBDRAMsim/blob/master/workflow.jpg" alt="Example Image" width="507" height="643" />
 
-![Alt text](https://github.com/shh8228/HBDRAMsim/blob/master/workflow.jpg)
 
 ```bash
 # help
