@@ -16,7 +16,7 @@ Refresh::Refresh(const Config &config, ChannelState &channel_state)
     } else {  // default refresh scheme: RANK STAGGERED
         refresh_interval_ = config_.tREFI / config_.ranks;
     }
-    std::cout<<"ref interval: "<<refresh_interval_<< std::endl;
+    // std::cout<<"ref interval: "<<refresh_interval_<< std::endl;
 }
 
 void Refresh::ClockTick() {

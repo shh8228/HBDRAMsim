@@ -1,6 +1,6 @@
 #include "dram_system.h"
 #include <assert.h>
-
+#include <cmath>
 namespace dramsim3 {
 
 // alternative way is to assign the id in constructor but this is less
@@ -21,7 +21,7 @@ BaseDRAMSystem::BaseDRAMSystem(Config &config, const std::string &output_dir,
       clk_(0) {
     total_channels_ += config_.channels;
 
-    std::cout<<config_.ranks<<config_.banks_per_group<<config_.bankgroups<<std::endl;
+    // std::cout<<config_.ranks<<config_.banks_per_group<<config_.bankgroups<<std::endl;
 #ifdef ADDR_TRACE
     std::string addr_trace_name = config_.output_prefix + "addr.trace";
     address_trace_.open(addr_trace_name);
@@ -113,7 +113,7 @@ JedecDRAMSystem::JedecDRAMSystem(Config &config, const std::string &output_dir,
     }
 
     int banks =  config_.ranks * config_.bankgroups * config_.banks_per_group;
-    std::cout<<"rank: "<<config_.ranks<<" bgs: "<<config_.bankgroups<<" bpg: "<<config_.banks_per_group<<std::endl;
+    // std::cout<<"rank: "<<config_.ranks<<" bgs: "<<config_.bankgroups<<" bpg: "<<config_.banks_per_group<<std::endl;
     for (auto i = 0; i < config_.channels; i++) {
         auto chan_occupancy =
             std::vector<bool>(banks, false);
@@ -390,7 +390,7 @@ void JedecDRAMSystem::ClockTick() {
 
 
         // TODO
-        int weight_banks_reduce = df == 1 ? 16 : 1;
+        int weight_banks_reduce = df == 1 ? 16 : 16; //16:1
         // TODO make vector of pairs
         // std::vector<std::pair<Command, int>> iw_cmds
         // auto cmd_pair = std::make_pair(cmd, i);
@@ -424,10 +424,11 @@ void JedecDRAMSystem::ClockTick() {
                         Address addr = Address(ch, 0, bg, bk, base_rows_w[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
                         uint64_t hex_addr = config_.AddressUnmapping(addr);
                         CommandType cmd_type;
+                        bool exit = ((N_it[i]+1) % N_tile_size_per_bank == 0 && (N_tile_size == N_tile_size_per_bank || (N_it[i]+1) % N_tile_size != 0));
 //                        if (mc == 16)
 //                            cmd_type =  (addr.column + 1) % ucf == 0 ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
 //                        else
-                            cmd_type = (addr.column + 1) % std::min(N[i], (128 / config_.banks) * weight_banks_reduce) == 0 || (addr.column + 1) % (config_.columns / config_.BL) == 0 ? readp_type : read_type; // TODO
+                            cmd_type = (addr.column + 1) % std::min(N[i], 128 / config_.banks * weight_banks_reduce) == 0 || (addr.column + 1) % (config_.columns / config_.BL) == 0 || exit ? readp_type : read_type; // TODO
                         Command cmd = Command(cmd_type, addr, hex_addr);
                         Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
                         if (!ready_cmd.IsValid()) {
@@ -509,7 +510,9 @@ void JedecDRAMSystem::ClockTick() {
                         Address addr = Address(ch, 0, bg, bk, base_rows_in[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
                         uint64_t hex_addr = config_.AddressUnmapping(addr);
                         bool close = M_it[i] + 1 == M[i]; // prevent closing between tiles
-                        close = df == 1 ? close && (K_tile_it[i]+1) * K_tile_size >= K[i] : close;
+                        // std::cout<<clk_<<" close"<<close<<std::endl;
+                        // close = df == 1 ? close && (K_tile_it[i]+1) * K_tile_size >= K[i] : close;
+                        //std::cout<<clk_<<" close"<<close<<std::endl;
                         CommandType cmd_type = addr.column == config_.columns / config_.BL - 1  || close ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
                         Command cmd = Command(cmd_type, addr, hex_addr);
                         Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
@@ -553,6 +556,7 @@ void JedecDRAMSystem::ClockTick() {
                 if (in_cmds[i].begin()->cmd_type == CommandType::PIM_ACTIVATE) {
                     //if ((!mixed && in_act_placed[i]) || wait_refresh) {
                     if ((in_act_placed[i]) || wait_refresh) {
+                        // std::cout<<clk_<<"case 2"<<std::endl;
                         in_cmds[i].clear();
                         break;
                     }
@@ -566,6 +570,7 @@ void JedecDRAMSystem::ClockTick() {
 
                     if (in_cmds[i].begin()->cmd_type == CommandType::PIM_READ_PRECHARGE) {
                         in_act_placed[i] = false;
+                        // std::cout<<clk_<<" displaced"<<i<<std::endl;
                     }
                     if (vpu_cnt[i]!=0){
                         in_cmds[i].clear();

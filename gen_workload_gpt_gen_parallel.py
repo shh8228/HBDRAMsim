@@ -24,15 +24,15 @@ def gen_workload(n_heads, d_head, d_model, start, end, layer, model, mcf, p):
 
     if layer == "all" or "noQKV":
         # Create Q, K, V : 1 x d_model x d_head*n_heads/p
-        gen_actual_workload(folder, "createQKV", M_tile, al, d_head*n_heads/p, d_model, 1, mcf, 16/mcf)
+        gen_actual_workload(folder, "createQKV", M_tile, al, d_head*math.ceil(n_heads/p), d_model, 1, mcf, 16/mcf)
         # W_o : 1 x d_head*n_heads/p x d_model
-        gen_actual_workload(folder, "W_o", M_tile, al, d_model, d_head*n_heads/p, 1, mcf, 16/mcf)
+        gen_actual_workload(folder, "W_o", M_tile, al, d_model, d_head*math.ceil(n_heads/p), 1, mcf, 16/mcf)
 
         # Linear 1 : 1 x d_model x 4*d_model/p
-        gen_actual_workload(folder, "L1", M_tile, al, 4*d_model/p, d_model, 1, mcf, 16/mcf)
+        gen_actual_workload(folder, "L1", M_tile, al, 4*d_model/p, d_model, 1, mcf, 16/mcf) # TODO not headwise
 
         # Linear 2 : 1 x 4*d_model/p x d_model
-        gen_actual_workload(folder, "L2", M_tile, al, d_model, 4*d_model/p, 1, mcf, 16/mcf)
+        gen_actual_workload(folder, "L2", M_tile, al, d_model, 4*d_model/p, 1, mcf, 16/mcf) # TODO not headwise
     if layer != "noQKV":
         for i in range(start, end+1):
             # Q x K_T : 1 x d_head x seq_num
@@ -44,10 +44,10 @@ def gen_workload(n_heads, d_head, d_model, start, end, layer, model, mcf, p):
                 mcf_ = mcf
 
             assert d_head <= 128
-            gen_actual_workload(folder, '_'.join(["QK", format(i, '04')]), M_tile, al, m, d_head, 1, mcf_, 1)
+            gen_actual_workload(folder, '_'.join(["QK", format(i, '04')]), M_tile, al, m, d_head*16, 1, mcf_, 16/mcf_) # TODO *16 for subarrays; 16/mcf -> 1?
 
             # S x V : 1 x seq_num x d_head
-            gen_actual_workload(folder, '_'.join(["SV", format(i, '04')]), M_tile, al, d_head, i, 1, mcf_, 1)
+            gen_actual_workload(folder, '_'.join(["SV", format(i, '04')]), M_tile, al, d_head*16, i, 1, mcf_, 16/mcf_) # TODO same
 
     return
 
@@ -59,5 +59,5 @@ if __name__ == "__main__":
     for line in lines:
         line = line.strip()
         model, n_layers, d_model, n_heads, d_head, par = line.split(' ')
-        for i in [1, 2, 4, 8, 16]:
+        for i in [1, 16]:
             gen_workload(int(n_heads), int(d_head), int(d_model), int(args.s), int(args.e), args.l, model, i, int(par))

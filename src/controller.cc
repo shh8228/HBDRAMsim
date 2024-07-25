@@ -182,7 +182,7 @@ void Controller::ClockTick() {
             }
             else it++;
         }
-        //rd_in_cmds_.clear(); //used in MT
+        // rd_in_cmds_.clear(); //used in MT
     }
 
 

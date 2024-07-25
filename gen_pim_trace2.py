@@ -3,8 +3,8 @@ import argparse
 import math
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-w", default=".", help="workloads folder")
-parser.add_argument("-t", default=".", help="trace folder")
+parser.add_argument("-w", default=".", help="workloads file")
+parser.add_argument("-t", default="./sample.trc", help="trace file")
 parser.add_argument("-f", default="True", help="given folders")
 
 def gen_pim_trace(workload, trace_file):
@@ -88,7 +88,7 @@ if __name__ == "__main__":
         for line in lines:
             line = line.strip()
             model = line.split(' ')[0]
-            for t in ["/SUM/"] + ["/GEN_mcf" + str(i) + '/' for i in [1, 2, 4, 8, 16]]:
+            for t in ["/SUM/"] + ["/GEN_mcf" + str(i) + '/' for i in [1, 16]]:
                 workloads_path = "workloads/" + model + t
                 trace_path = "traces/" + model + t
                 flist = os.listdir(workloads_path)
