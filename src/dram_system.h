@@ -74,6 +74,7 @@ class JedecDRAMSystem : public BaseDRAMSystem {
     bool AddTransaction(uint64_t hex_addr, bool is_write) override;
     void ClockTick() override;
     Command GetReadyCommandPIM(Transaction trans, CommandType type);
+    // dataflow configuration
     int vcuts = -1;
     int hcuts = -1;
     int mcf = 1;
@@ -87,12 +88,14 @@ class JedecDRAMSystem : public BaseDRAMSystem {
     // TODO stride and kernel size also must be vectors
     int stride = 0;
     int kernel_size = 0;
+    // workload configuration
     std::vector<uint64_t> base_rows_in;
     std::vector<uint64_t> base_rows_w;
     std::vector<uint64_t> base_rows_out;
     std::vector<int> M;
     std::vector<int> N;
     std::vector<int> K;
+    // BLAS scheduler status
     std::vector<int> M_it;
     std::vector<int> N_it;
     std::vector<int> K_tile_it;
@@ -100,14 +103,14 @@ class JedecDRAMSystem : public BaseDRAMSystem {
     std::vector<int> N_out_tile_it;
     std::vector<bool> in_pim;
     std::vector<int> iw_status;
+    std::vector<bool> in_act_placed;
+    std::vector<bool> w_act_placed;
+    std::vector<bool> out_act_placed;
+    // NPU status
     std::vector<int> output_valid;
     std::vector<int> in_cnt;
     std::vector<int> out_cnt;
     std::vector<int> vpu_cnt;
-    std::vector<int> ucf_cnt;
-    std::vector<bool> in_act_placed;
-    std::vector<bool> w_act_placed;
-    std::vector<bool> out_act_placed;
 
 
     std::vector<std::vector<bool>> bank_occupancy_;

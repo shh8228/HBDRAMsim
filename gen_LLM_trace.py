@@ -7,6 +7,39 @@ parser.add_argument("-w", default=".", help="workloads file")
 parser.add_argument("-t", default="./sample.trc", help="trace file")
 parser.add_argument("-f", default="True", help="given folders")
 
+import configparser
+
+def extract_variables(file_path):
+    desired_variables = {
+        "dram_structure": ["protocol", "bankgroups", "banks_per_group", "rows", "columns", "device_width", "BL", "num_dies"],
+        "timing": ["tCK", "CL", "CWL", "tRCDRD", "tRCDWR", "tRP", "tRAS", "tRFC", "tREFI"],
+        "power": ["VDD", "IDD0", "IDD2P", "IDD2N", "IDD3P", "IDD3N", "IDD4W", "IDD4R", "IDD5AB", "IDD6x"],
+        "system": ["channel_size", "channels", "bus_width", "address_mapping", "queue_structure", "row_buf_policy", "cmd_queue_size", "trans_queue_size", "unified_queue"]
+    }
+
+    config = configparser.ConfigParser()
+    config.read(file_path)
+
+    extracted_data = {}
+
+    for section, variables in desired_variables.items():
+        if section in config:
+            extracted_data[section] = {}
+            for var in variables:
+                if var in config[section]:
+                        extracted_data[section][var] = config[section][var]
+
+    return extracted_data
+
+file_path = "path/to/your/file.ini"
+
+extracted_data = extract_variables(file_path)
+for section, variables in extracted_data.items():
+        print(f"[{section}]")
+            for var, value in variables.items():
+                        print(f"{var} = {value}")
+                            print()
+
 def gen_pim_trace(workload, trace_file):
     fin = open(workload, 'r')
     fout = open(trace_file, 'w')
@@ -46,21 +79,21 @@ def gen_pim_trace(workload, trace_file):
             exp += 4
             loadaddr += j * (2**exp)
             exp += 2
-            if (df == 0 and j==0):
+            if (dims[2] != 1 and j==0):
                 dim = int(dim/2) # GEMM interleaving
-            if (df == 1): # N[i] == 1 (mcf*ucf == 16)
+            if (dims[2] == 1): # N[i] == 1 (mcf*ucf == 16)
                 if (j == 0):
                     loadaddr += max(1, dim/mcf) * (2**exp)
                 elif (j == 1):
                     loadaddr += max(1, dim/ucf) * (2**exp)
                 else:
-                    loadaddr += dim*ucf * (2**exp)
+                    loadaddr += dim*ucf*8 * (2**exp) # TODO *8 to single batch is nono, if df == 1, write just dim*ucf
             else:
                 loadaddr += dim * (2**exp)
             exp += 32
-            if (df == 0 and j!=0): # Allocating addresses of Inputs and outputs in GEMM kernel
+            if (dims[2] != 1 and j!=0): # Allocating addresses of Inputs and outputs in GEMM kernel
                 loadaddr += (int(dims[1]*dims[2]/1024)+1) * (2**exp)
-            elif (df == 1 and j!=2): # Allocating addresses of Inputs and outputs in GEMV kernel
+            elif (dims[2] == 1 and j!=2): # Allocating addresses of Inputs and outputs in GEMV kernel
                 loadaddr += (int(dims[0]*dims[1]/1024)+1) * (2**exp)
             else: # Allocating address of Weights
                 loadaddr += 0

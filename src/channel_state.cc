@@ -105,7 +105,7 @@ Command ChannelState::GetReadyCommand(const Command& cmd, uint64_t clk) const {
         if (!ready_cmd.IsValid()) {
             return Command();
         }
-        if (ready_cmd.cmd_type == CommandType::ACTIVATE || ready_cmd.cmd_type == CommandType::PIM_ACTIVATE) { // when not ignoring tFAW TODO
+        if (ready_cmd.cmd_type == CommandType::ACTIVATE || ready_cmd.cmd_type == CommandType::PIM_ACTIVATE) {
             if (!ActivationWindowOk(ready_cmd.Rank(), clk)) {
                 return Command();
             }
@@ -140,7 +140,7 @@ void ChannelState::UpdateState(const Command& cmd) {
 void ChannelState::UpdateTiming(const Command& cmd, uint64_t clk) {
     switch (cmd.cmd_type) {
         case CommandType::ACTIVATE:
-        case CommandType::PIM_ACTIVATE: // TODO
+        case CommandType::PIM_ACTIVATE:
             UpdateActivationTimes(cmd.Rank(), clk);
         case CommandType::READ:
         case CommandType::READ_PRECHARGE:
@@ -180,8 +180,10 @@ void ChannelState::UpdateTiming(const Command& cmd, uint64_t clk) {
                 cmd.addr, timing_.same_rank[static_cast<int>(cmd.cmd_type)],
                 clk);
             break;
-        case CommandType::PIM_READ:
-        case CommandType::PIM_READ_PRECHARGE:
+        case CommandType::LH_READ:
+        case CommandType::LH_READ_PRECHARGE:
+        case CommandType::GH_READ:
+        case CommandType::GH_READ_PRECHARGE:
         case CommandType::PIM_WRITE:
         case CommandType::PIM_WRITE_PRECHARGE:
             UpdateSameBankTiming(

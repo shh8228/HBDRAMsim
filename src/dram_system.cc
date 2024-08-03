@@ -193,8 +193,9 @@ void JedecDRAMSystem::ClockTick() {
 
     // std::cout<<"Clock Cycle "<<clk_<<std::endl;
 
-    //lookup refresh_ in each controller to check refresh countdown
-    //if countdown is lower than pim delay, pause issuing pim commands until refresh is done over all ranks
+    // We calculate the refresh timing and pause PIM operations if a refresh is expected to occur during PIM operations.
+    // lookup refresh_ in each controller to check refresh countdown
+    // if countdown is lower than pim delay, pause issuing pim commands until refresh is done over all ranks
     bool wait_refresh = false;
     for (size_t i=0; i<ctrls_.size(); i++) {
         if (ctrls_[i]->pim_refresh_coming() && vcuts != -1 && hcuts != -1) {
@@ -208,17 +209,10 @@ void JedecDRAMSystem::ClockTick() {
         }
     }
 
-    //TODO npu signals
-    bool weight_fetching = false;
-    bool input_sending = false;
-    int tensor_bitwidth = 3;
-    bool input_trans_found = false;
-    bool weight_trans_found = false;
-    bool output_trans_found = false;
 
 
-
-    if (!pim_trans_queue_.empty()) { // wait_refresh: when sending an activation cmd. no configured var
+    // Pop a PIM transaction if the queue is not empty
+    if (!pim_trans_queue_.empty()) {
         int cut_no;
         int bw_cutNo = 4;
         int bw_vcuts = 3;
@@ -236,7 +230,9 @@ void JedecDRAMSystem::ClockTick() {
         auto it = pim_trans_queue_.begin();
         uint64_t address = it->addr;
 
-        if (it->addr & 1) { // computing
+        // distinguish transaction by LSB of its address into three types:
+        // launch computation, load dataflow configuration, and load workload configuration
+        if (it->addr & 1) { // launch computation
             address = address >> 1;
             int cuts = vcuts * hcuts;
             bool configured = true;
@@ -251,8 +247,12 @@ void JedecDRAMSystem::ClockTick() {
                         in_pim[i] = true;
                 pim_trans_queue_.erase(it);
             }
+            for (size_t i=0; i<ctrls_.size(); i++) {
+                ctrls_[i]->in_pim = true;
+            }
+
         }
-        else if ((it->addr & (1 << 6)) && (it->addr & (1 << 5))) { // cutting
+        else if ((it->addr & (1 << 6)) && (it->addr & (1 << 5))) { // loading dataflow configuration
 
 
             base_rows_w.clear();
@@ -305,7 +305,6 @@ void JedecDRAMSystem::ClockTick() {
             address = address >> bw_kernelSize;
             stride = address & ((1<<bw_stride)-1);
 
-            assert(M_tile_size <= 2048); // TODO accurate value
 
             int cuts = vcuts * hcuts;
             base_rows_w.assign(cuts, 0);
@@ -331,7 +330,7 @@ void JedecDRAMSystem::ClockTick() {
 
             pim_trans_queue_.erase(it);
         }
-        else { // loading
+        else { // loading workload configuration
             address = address >> 1;
             cut_no = address & ((1 << bw_cutNo)-1);
             address = address >> 4;
@@ -372,6 +371,8 @@ void JedecDRAMSystem::ClockTick() {
             is_in_ref = true;
     }
 
+    // We are currently developing multi-tenant workload support in the NPU by partitioning the array and running them independently.
+    // Please ignore these variables (~cut~) for now.
     int cuts = 0;
     if (vcuts != -1 && hcuts != -1) cuts = vcuts * hcuts;
     for (int i=0; i < cuts; i++) {
@@ -382,64 +383,57 @@ void JedecDRAMSystem::ClockTick() {
         int hcut_no = i / vcuts;
         int cut_width = config_.banks / vcuts;
 
-        int N_tile_size = 128 / vcuts; // TODO 128 : the number of PEs in a row
+        int N_tile_size = 128 / vcuts; // 128 : the number of PEs in a row
         int N_tile_it = N_it[i] / N_tile_size;
         int M_tile_it = M_it[i] / M_tile_size;
         int M_current_tile_size = M[i] < M_tile_size * (M_tile_it + 1) ? M[i] % M_tile_size : M_tile_size;
-        int K_tile_size = std::min(cut_height * 16, K[i]); // TODO 16: the number of PEs supported by a bank's io
+        int K_tile_size = std::min(cut_height * 16, K[i]); // 16: the number of PEs supported by a bank's io
 
 
-        // TODO
-        int weight_banks_reduce = df == 1 ? 16 : 16; //16:1
-        // TODO make vector of pairs
-        // std::vector<std::pair<Command, int>> iw_cmds
-        // auto cmd_pair = std::make_pair(cmd, i);
+        int weight_banks_reduce = df==0? 8:16; // BLP option for weight loading
         std::vector<std::vector<Command>> in_cmds(cuts);
         std::vector<std::vector<Command>> w_cmds(cuts);
 
-        bool output_ready = iw_status[i] == 3; // : iw_status[i] == 2 || in_cnt[i] == -1;
+        bool output_ready = iw_status[i] == 3;
 
         // std::cout<<iw_status[i]<<"iw_status\n";
+        // Our PIM command scheduler changes iw_status value to switch the BLAS functions between loading data into PE array registers and streaming data into the array.
+        // It manages matrix multiplication progress by monitoring and updating the BLAS status and NPU status
         switch (iw_status[i]) {
-            case 0: { // Fetching weight
-                /*
-                if (mc == 16) {
-                    iw_status[i]++;
-                    break;
-                }*/
+            case 0: { // data loading into PE registers
                 CommandType act_type = CommandType::PIM_ACTIVATE;
-                CommandType read_type = CommandType::PIM_READ;
-                CommandType readp_type = CommandType::PIM_READ_PRECHARGE;
+                CommandType read_type = CommandType::GH_READ;
+                CommandType readp_type = CommandType::GH_READ_PRECHARGE;
 
 
                 int N_tile_size_per_bank = std::min(N[i], (N_tile_size-1)/(cut_width/weight_banks_reduce) + 1);
                 int col_offset = N_tile_it * (N_tile_size_per_bank * ((K[i]-1) / K_tile_size + 1)) + K_tile_it[i] * N_tile_size_per_bank + N_it[i] % N_tile_size; // N_it incremented by N_tile_size when N_it % N_tile_size_per_bank == 0 (but not with N_tile_size)
+                // Scheduler generates the commands for a data vector, divided into multiple channels and sends them to command queues in the corresponding channel controllers.
                 for (int j=0; j<cut_height; j++) {
+                    // It can read multiple banks or only one bank per channel, but fixed to one bank for now.
                     for (int k=0; k<cut_width/weight_banks_reduce; k++) {
-                        // TODO offset must be divided by row_width/dev_width
                         int ch = hcut_no * cut_height + j;
                         int bk = vcut_no * cut_width + k * weight_banks_reduce;
                         int bg = bk / config_.banks_per_group;
                         bk = bk % config_.banks_per_group;
+                        // building memory address by combining base physical address and BLAS configuration
                         Address addr = Address(ch, 0, bg, bk, base_rows_w[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
                         uint64_t hex_addr = config_.AddressUnmapping(addr);
+                        // generate read-precharge command if this is the last access to read the tile.
                         CommandType cmd_type;
                         bool exit = ((N_it[i]+1) % N_tile_size_per_bank == 0 && (N_tile_size == N_tile_size_per_bank || (N_it[i]+1) % N_tile_size != 0));
-//                        if (mc == 16)
-//                            cmd_type =  (addr.column + 1) % ucf == 0 ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
-//                        else
-                            cmd_type = (addr.column + 1) % std::min(N[i], 128 / config_.banks * weight_banks_reduce) == 0 || (addr.column + 1) % (config_.columns / config_.BL) == 0 || exit ? readp_type : read_type; // TODO
+                        cmd_type = (addr.column + 1) % std::min(N[i], 128 / config_.banks * weight_banks_reduce) == 0 || (addr.column + 1) % (config_.columns / config_.BL) == 0 || exit ? readp_type : read_type;
                         Command cmd = Command(cmd_type, addr, hex_addr);
                         Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
+                        // If a command cannot be executed in some channels due to timing constraints, flush the commands going to other channels and try again later.
+                        // This is to prevent the commands from being sent multiple times.
                         if (!ready_cmd.IsValid()) {
-                            // std::cout<<clk_<<" Invalid Command: "<<ready_cmd<<std::endl;
                             w_cmds[i].clear();
                             break;
                         }
                         else {
                             w_cmds[i].push_back(ready_cmd);
                             if (w_cmds[i].begin()->cmd_type != ready_cmd.cmd_type) {
-                                // std::cout<<clk_<<" Unmatched Commands\n"<<ready_cmd<<std::endl<<*(w_cmds[i].begin())<<std::endl; //TODO push back when it is not read or write?
                                 w_cmds[i].clear();
                                 break;
                             }
@@ -450,7 +444,7 @@ void JedecDRAMSystem::ClockTick() {
 
 
                 if (w_cmds[i].empty()) break;
-
+                // Check if the activation command was already sent.
                 if (w_cmds[i].begin()->cmd_type == act_type) {
                     if (w_act_placed[i] || wait_refresh) {
                         w_cmds[i].clear();
@@ -459,6 +453,7 @@ void JedecDRAMSystem::ClockTick() {
                     else
                         w_act_placed[i] = true;
                 }
+                //
                 else {
                     if (w_cmds[i].begin()->cmd_type == readp_type) {
                         w_act_placed[i] = false;
@@ -466,7 +461,6 @@ void JedecDRAMSystem::ClockTick() {
                     if (df == 1 && w_cmds[i].begin()->cmd_type == CommandType::PRECHARGE) {
                         break;
                     }
-                    // std::cout<<"Fetch Weight\n";
 
                     // increment iterators
                     N_it[i]++;
@@ -479,11 +473,12 @@ void JedecDRAMSystem::ClockTick() {
 
                 break;
             }
-            case 1: { // Finished weight
-                // wait npu_signals
+            case 1: { // Finished data loading
+                // wait npu signals
+                // For not multi-tenant cases, advance to next stage immediately.
                 iw_status[i]++;
-                vpu_cnt[i] = 1; //8*weight_banks_reduce;
-                if (cuts == 1) { //N[i]==1) { //TODO Multi-Tenant
+                vpu_cnt[i] = 1;
+                if (cuts == 1) { //N[i]==1) { //TODO support for MT
                     for (int j=0; j<iw_status.size(); j++) {
                         if (iw_status[j] == 0 || iw_status[j] == 3) {
                             iw_status[i]--;
@@ -493,29 +488,39 @@ void JedecDRAMSystem::ClockTick() {
                 }
                 break;
             }
-            case 2: { // Feeding input
+            case 2: { // Streaming data into PE array
+                CommandType act_type = CommandType::PIM_ACTIVATE;
+                CommandType read_type = df == 0 ? CommandType::GH_READ : CommandType::LH_READ;
+                CommandType readp_type = df == 0 ? CommandType::GH_READ_PRECHARGE : CommandType::LH_READ_PRECHARGE;
                 vpu_cnt[i]--;
                 vpu_cnt[i] = std::max(0, vpu_cnt[i]);
 
                 int col_offset = M_tile_it * (M_tile_size * ((K[i]-1) / K_tile_size + 1)) + K_tile_it[i] * M_current_tile_size + M_it[i] % M_tile_size;
                 bool mixed = false;
                 Command mixed_cmd;
+                // Scheduler generates the commands for a data vector, divided into multiple channels and sends them to command queues in the corresponding channel controllers.
                 for (int j=0; j<cut_height; j++) {
+                    // It can generate commands for multiple banks per channel simultaneously depending on the multi-column configuration.
                     for (int k=0; k<mc; k++) {
-                        // TODO offset must be divided by row_width/dev_width
+
                         int ch = hcut_no * cut_height + j;
                         int bk = vcut_no * cut_width + k*(cut_width/mc);
+                        if (df==0) bk++;
                         int bg = bk / config_.banks_per_group;
                         bk = bk % config_.banks_per_group;
+
+                        // building memory address by combining base physical address and BLAS configuration
                         Address addr = Address(ch, 0, bg, bk, base_rows_in[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
                         uint64_t hex_addr = config_.AddressUnmapping(addr);
                         bool close = M_it[i] + 1 == M[i]; // prevent closing between tiles
-                        // std::cout<<clk_<<" close"<<close<<std::endl;
-                        // close = df == 1 ? close && (K_tile_it[i]+1) * K_tile_size >= K[i] : close;
-                        //std::cout<<clk_<<" close"<<close<<std::endl;
-                        CommandType cmd_type = addr.column == config_.columns / config_.BL - 1  || close ? CommandType::PIM_READ_PRECHARGE : CommandType::PIM_READ;
+                        bool close2 = (K_tile_it[i]+1) * K_tile_size >= K[i]; // leave open in GEMM since batch size is too small in LLMs
+                        bool close3 = df==0?close2 && close:close;
+                        // generate read-precharge command if this is the last access to read the tile.
+                        CommandType cmd_type = close3 || addr.column == config_.columns / config_.BL - 1 ? readp_type : read_type;
                         Command cmd = Command(cmd_type, addr, hex_addr);
                         Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
+                        // If a command cannot be executed in some channels due to timing constraints, flush the commands going to other channels and try again later.
+                        // This is to prevent the commands from being sent multiple times.
                         if (!ready_cmd.IsValid()) {
                             in_cmds[i].clear();
                             break;
@@ -525,7 +530,7 @@ void JedecDRAMSystem::ClockTick() {
                             if (in_cmds[i].begin()->cmd_type != ready_cmd.cmd_type) {
                                 if (mixed) {
                                     if (mixed_cmd.cmd_type != in_cmds[i].begin()->cmd_type && mixed_cmd.cmd_type != ready_cmd.cmd_type) {
-                                        std::cout<<"MIXED 3: "<<mixed_cmd<<*in_cmds[i].begin()<<ready_cmd<<std::endl;
+                                        std::cout<<"3 ops mixed: "<<mixed_cmd<<*in_cmds[i].begin()<<ready_cmd<<std::endl;
                                     }
                                 }
                                 else {
@@ -543,7 +548,7 @@ void JedecDRAMSystem::ClockTick() {
                 }
                 if (mixed) {
                     for (auto it = in_cmds[i].begin(); it != in_cmds[i].end();) {
-                        if (it->cmd_type == CommandType::PIM_READ || it->cmd_type == CommandType::PIM_READ_PRECHARGE) {
+                        if (it->cmd_type == read_type || it->cmd_type == readp_type) {
                             it = in_cmds[i].erase(it);
                         }
                         else
@@ -553,41 +558,39 @@ void JedecDRAMSystem::ClockTick() {
 
                 if (in_cmds[i].empty()) break;
 
-                if (in_cmds[i].begin()->cmd_type == CommandType::PIM_ACTIVATE) {
-                    //if ((!mixed && in_act_placed[i]) || wait_refresh) {
+                // Check if the activation command was already sent.
+                if (in_cmds[i].begin()->cmd_type == act_type) {
                     if ((in_act_placed[i]) || wait_refresh) {
-                        // std::cout<<clk_<<"case 2"<<std::endl;
                         in_cmds[i].clear();
                         break;
                     }
                     else{
                         in_act_placed[i] = true;
-                        // std::cout<<clk_<<" placed"<<i<<std::endl;
 
                     }
                 }
                 else {
 
-                    if (in_cmds[i].begin()->cmd_type == CommandType::PIM_READ_PRECHARGE) {
+                    if (in_cmds[i].begin()->cmd_type == readp_type) {
                         in_act_placed[i] = false;
-                        // std::cout<<clk_<<" displaced"<<i<<std::endl;
                     }
                     if (vpu_cnt[i]!=0){
                         in_cmds[i].clear();
                         break;
                     }
-                    // std::cout<<"Feed Input\n";
 
                     assert(M_tile_size > 128/vcuts);
 
-                    if ((K_tile_it[i]+1) * K_tile_size >= K[i] && M_it[i] % M_tile_size == 0) { // TODO
-                        out_cnt[i] = std::max(1, config_.tCCD_L * (3 + 16) - config_.tRCDWR); // TODO log(8) + 128 / 8  + extra
+                    // Update NPU status. Countdown the operation delay.
+                    if ((K_tile_it[i]+1) * K_tile_size >= K[i] && M_it[i] % M_tile_size == 0) {
+                        out_cnt[i] = std::max(1, config_.tCCD_L * (3 + 16) - config_.tRCDWR);
                     }
 
+
+                    // Increment Iterators
                     M_it[i]++;
-                    // if (i==3) for (auto it = in_cmds[i].begin(); it != in_cmds[i].end(); it++) std::cout<<clk_<<mixed<<*it<<" N"<<N_it[i]<<" M"<<M_it[i]<<" MT"<<M_tile_size<<" K"<<K_tile_it[i]<<std::endl;
-                    if (M_it[i] % M_tile_size == 0 || M_it[i] == M[i]) { // TODO
-                        in_cnt[i] = std::max(1, config_.tCCD_L * std::max(128/(vcuts*mc), 16) - config_.tRCDRD); // (vcuts*mc) TODO subtract tRP+tRCD
+                    if (M_it[i] % M_tile_size == 0 || M_it[i] == M[i]) {
+                        in_cnt[i] = std::max(1, config_.tCCD_L * std::max(128/(vcuts*mc), 16) - config_.tRCDRD);
                         iw_status[i]++;
                         M_it[i] = M_tile_size * M_tile_it;
                         K_tile_it[i]++;
@@ -610,6 +613,8 @@ void JedecDRAMSystem::ClockTick() {
                 break;
             }
             case 3: {// Finished input
+                // Lookup NPU status
+                // Wait until PE array is available for loading a new tile.
                 if (in_cnt[i] == -1) break;
                 else {
 
@@ -618,60 +623,6 @@ void JedecDRAMSystem::ClockTick() {
                         iw_status[i] = 0;
                     break;
                 }
-                /*
-                else {
-
-
-                    in_cnt[i] = std::max(0, in_cnt[i] - 1);
-                    if (in_cnt[i] != 0) break;
-                    bool all_closed = true;
-                    for (int j=0; j<cut_height; j++) {
-                        for (int k=0; k<cut_width/weight_banks_reduce; k++) {
-                            int ch = hcut_no * cut_height + j;
-                            int bk = vcut_no * cut_width + k * weight_banks_reduce;
-                            int bg = bk / config_.banks_per_group;
-                            bk = bk % config_.banks_per_group;
-                            Address addr = Address(ch, 0, bg, bk, 0, 0);
-                            uint64_t hex_addr = config_.AddressUnmapping(addr);
-                            Command cmd = Command(CommandType::PIM_READ, addr, hex_addr);
-                            Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
-                            switch (ready_cmd.cmd_type) {
-                                case CommandType::PIM_READ:
-                                    ready_cmd = Command(CommandType::PRECHARGE, addr, hex_addr);
-                                case CommandType::PRECHARGE:
-                                    w_cmds[i].push_back(ready_cmd);
-                                    // std::cout<<clk_<<"\t"<<ready_cmd<<std::endl;
-                                    all_closed = false;
-                                    break;
-
-                                case CommandType::SIZE:
-                                    all_closed = false;
-                                    break;
-
-                                case CommandType::PIM_ACTIVATE:
-                                    break;
-
-                                default:
-                                    AbruptExit(__FILE__, __LINE__);
-                                    break;
-                            }
-                        }
-                    }
-                    if (all_closed) { //TODO Multi-Tenant
-                        iw_status[i] = 0;
-                        if (cuts == 1) { //N[i]==1) {
-                            for (int j=0; j<iw_status.size(); j++) {
-                                if (iw_status[j] == 2) {
-                                    iw_status[i] = 3;
-                                    break;
-                                }
-                            }
-                        }
-                        if (iw_status[i] == 0 && out_act_placed[i]) out_act_placed[i] = false;
-                    }
-
-
-                }*/
                 break;
             }
             default: {
@@ -679,9 +630,9 @@ void JedecDRAMSystem::ClockTick() {
             }
         }
 
-        // TODO simulate npu_signal
 
 
+        // Update NPU status
         if (out_cnt[i] == 0) output_valid[i]++;
         if (out_cnt[i] != -1) out_cnt[i]--;
 
@@ -689,6 +640,8 @@ void JedecDRAMSystem::ClockTick() {
         std::vector<std::vector<Command>> out_cmds(cuts);
 
 
+        // Writing Output from NPU to DRAM
+        // Command Scheduler lookups the NPU status to check if the output data is ready to be sent to DRAM.
         bool out_enable = cut_height / vcuts > 0 || vcut_no % 2 == 0;
         if (output_valid[i] > 0 && output_ready && out_enable) {
             int vcut_out_no = M[i] == 1 ? vcut_no : vcuts == 16 ? vcut_no / 2 : (vcut_no + N_out_tile_it[i]) % vcuts; // relates to channel number
@@ -704,24 +657,32 @@ void JedecDRAMSystem::ClockTick() {
             int N_tile_it_ch = N_out_tile_it[i] / vcuts;
             int col_offset = M_out_tile_it * (M_tile_size_out * N_tile_num_ch) + N_tile_it_ch * M_out_current_tile_size + M_out_it[i] % M_tile_size_out;
 
+            // Scheduler generates the commands for a data vector, divided into multiple channels and sends them to command queues in the corresponding channel controllers.
             int cut_height_out = cut_height < vcuts ? 1 : cut_height / vcuts;
             for (int j=0; j<cut_height_out; j++) {
-                // TODO offset must be divided by row_width/dev_width
+
+                // It can generate commands for multiple banks per channel simultaneously depending on the multi-column configuration.
+                // but it can send the same data only because the data bus is shared between the banks.
                 int ch = hcut_no * cut_height + vcut_out_no * cut_height_out + j;
-                int k_bound = df == 1 ? 1 : M[i] == 1 || true ? mc : 1; // TODO M[i]==1? systolic effect
+                int k_bound = df == 1 ? 1 : M[i] == 1 || true ? mc : 1;
                 for (int k=0; k<k_bound; k++) {
                     int bk = vcut_no * cut_width + k*(cut_width/mc);
                     if (df != 1) bk++;
                     int bg = bk / config_.banks_per_group;
                     bk = bk % config_.banks_per_group;
+                    if (df==0) bk += 2;
+                    // building memory address by combining base physical address and BLAS configuration
                     Address addr = Address(ch, 0, bg, bk, base_rows_out[i] + col_offset/(config_.columns/config_.BL),  col_offset % (config_.columns/config_.BL));
                     // Address addr = Address(ch, 0, bg, bk, base_rows_out[i] + col_offset,  col_offset % (config_.columns/config_.BL));
                     uint64_t hex_addr = config_.AddressUnmapping(addr);
-                    CommandType cmd_type = addr.column == config_.columns / config_.BL - 1 || M_out_it[i] + 1 == M_out ? CommandType::PIM_WRITE_PRECHARGE : CommandType::PIM_WRITE;
+                    // generate write-precharge command if this is the last access to write the output tile.
+                    bool close = M_out_it[i] + 1 == M_out;
+                    CommandType cmd_type = close || addr.column == config_.columns / config_.BL - 1 ? CommandType::PIM_WRITE_PRECHARGE : CommandType::PIM_WRITE;
                     Command cmd = Command(cmd_type, addr, hex_addr);
                     Command ready_cmd = ctrls_[ch]->GetReadyCommand(cmd, clk_);
 
-
+                    // If a command cannot be executed in some channels due to timing constraints, flush the commands going to other channels and try again later.
+                    // This is to prevent the commands from being sent multiple times.
                     if (!ready_cmd.IsValid()) {
                         out_cmds[i].clear();
                         break;
@@ -737,6 +698,7 @@ void JedecDRAMSystem::ClockTick() {
                 if (out_cmds[i].empty()) break;
             }
 
+            // Check if the activation command was already sent.
             if (!out_cmds[i].empty()) {
                 if (out_cmds[i].begin()->cmd_type == CommandType::PIM_ACTIVATE) {
                     if (out_act_placed[i] || wait_refresh) {
@@ -750,10 +712,9 @@ void JedecDRAMSystem::ClockTick() {
                     if (out_cmds[i].begin()->cmd_type == CommandType::PIM_WRITE_PRECHARGE) {
                         out_act_placed[i] = false;
                     }
-                // std::cout<<"Write Output\n";
 
+                    // Increment Iterators
                     M_out_it[i]++;
-                    //std::cout<<clk_<<" "<<i<<" Mo"<<M_out_it[i]<<" No"<<N_out_tile_it[i]<<std::endl;
                     if (M_out_it[i] % M_tile_size_out == 0 || M_out_it[i] == M_out) {
                         M_out_it[i] = M_tile_size_out * M_out_tile_it;
                         N_out_tile_it[i]++;
@@ -762,14 +723,13 @@ void JedecDRAMSystem::ClockTick() {
                             M_out_it[i] = M_tile_size_out * (M_out_tile_it+1);
                             if (M_out_it[i] >= M_out) {
                                 assert(in_cnt[i] == -1);
-                                std::cout<<clk_<<" Output Exhausted. Array"<<i<<" Turn off PIM mode.\n";
+                                std::cout<<clk_<<" Output Exhausted: Array"<<i<<". Turn off PIM mode.\n";
                                 in_pim[i] = false;
                                 if (cut_height < vcuts) in_pim[i+1] = false;
                                 turn_off = true;
                                 for (size_t j = 0; j < in_pim.size(); j++) {
                                     if (in_pim[j]) {
                                         turn_off = false;
-                                        std::cout<<j<< " " << M_out_it[j]<<" "<<K_tile_it[j]*K_tile_size<<" "<<N_out_tile_it[j]*N_tile_size_out<<std::endl;
                                     }
 
                                 }
@@ -785,6 +745,8 @@ void JedecDRAMSystem::ClockTick() {
             }
 
         }
+
+        // Finally the scheduler sends the aggregated commands to channel controllers by pushing them into PIM command queues, which are managed in-order.
         for (auto& it: w_cmds) {
             for (auto& it2: it) {
                // std::cout<<clk_<<" "<<it<<std::endl;
@@ -795,7 +757,7 @@ void JedecDRAMSystem::ClockTick() {
             for (auto& it2: it) {
                 ctrls_[it2.Channel()]->rd_in_cmds_.push_back(it2);
                 int release_time_ = clk_;
-                if (it2.cmd_type == CommandType::PIM_ACTIVATE) release_time_ += 0;  // + (it.Channel() % cut_height)*config_.tCCD_S); //TODO
+                if (it2.cmd_type == CommandType::PIM_ACTIVATE) release_time_ += 0;  // + (it.Channel() % cut_height)*config_.tCCD_S);
                 ctrls_[it2.Channel()]->release_time.push_back(release_time_);
             }
         }

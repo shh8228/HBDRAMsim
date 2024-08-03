@@ -105,7 +105,8 @@ class Config {
     double pre_energy_inc;
     double read_energy_inc;
     double write_energy_inc;
-    double pim_read_energy_inc;
+    double lh_read_energy_inc;
+    double gh_read_energy_inc;
     double pim_write_energy_inc;
     double ref_energy_inc;
     double refb_energy_inc;

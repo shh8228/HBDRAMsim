@@ -18,17 +18,17 @@ def gen_workload(n_heads, d_head, d_model, seq_len, model, p):
     M_tile = 2048
     al = 8
 
-    for mc in [1, 2, 4, 8]:
+    for mc in [2]:
         folder = "workloads/" + model + "/SUM/" + format(seq_len, '04') + "_mc" + str(mc)
         if not os.path.exists(folder):
             os.makedirs(folder)
 
 
         # Create Q, K, V : seq_len x d_model x d_head*n_heads/p
-        gen_actual_workload_ws_mc(folder, "createQKV", M_tile, al, seq_len, d_model, d_head*n_heads/p, mc)
+        gen_actual_workload_ws_mc(folder, "createQKV", M_tile, al, seq_len, d_model, d_head*int(math.ceil(float(n_heads)/p)), mc)
 
         # W_o : seq_len x d_head*n_heads/p x d_model
-        gen_actual_workload_ws_mc(folder, "W_o", M_tile, al, seq_len, d_head*n_heads/p, d_model, mc)
+        gen_actual_workload_ws_mc(folder, "W_o", M_tile, al, seq_len, d_head*int(math.ceil(float(n_heads)/p)), d_model, mc)
 
         # Linear 1 : seq_len x d_model x 4*d_model/p
         gen_actual_workload_ws_mc(folder, "L1", M_tile, al, seq_len, d_model, 4*d_model/p, mc)
@@ -51,5 +51,5 @@ if __name__ == "__main__":
     lines = fin.readlines()
     for line in lines:
         line = line.strip()
-        model, n_layers, d_model, n_heads, d_head, par = line.split(' ')
-        gen_workload(int(n_heads), int(d_head), int(d_model), int(args.s), model, int(par))
+        model, param_size, n_layers, d_model, n_heads, d_head, TP, PP = line.split(' ')
+        gen_workload(int(n_heads), int(d_head), int(d_model), int(args.s), model, int(TP))

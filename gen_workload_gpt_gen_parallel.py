@@ -24,9 +24,9 @@ def gen_workload(n_heads, d_head, d_model, start, end, layer, model, mcf, p):
 
     if layer == "all" or "noQKV":
         # Create Q, K, V : 1 x d_model x d_head*n_heads/p
-        gen_actual_workload(folder, "createQKV", M_tile, al, d_head*math.ceil(n_heads/p), d_model, 1, mcf, 16/mcf)
+        gen_actual_workload(folder, "createQKV", M_tile, al, d_head*int(math.ceil(float(n_heads)/p)), d_model, 1, mcf, 16/mcf)
         # W_o : 1 x d_head*n_heads/p x d_model
-        gen_actual_workload(folder, "W_o", M_tile, al, d_model, d_head*math.ceil(n_heads/p), 1, mcf, 16/mcf)
+        gen_actual_workload(folder, "W_o", M_tile, al, d_model, d_head*int(math.ceil(float(n_heads)/p)),1, mcf, 16/mcf)
 
         # Linear 1 : 1 x d_model x 4*d_model/p
         gen_actual_workload(folder, "L1", M_tile, al, 4*d_model/p, d_model, 1, mcf, 16/mcf) # TODO not headwise
@@ -58,6 +58,6 @@ if __name__ == "__main__":
     lines = fin.readlines()
     for line in lines:
         line = line.strip()
-        model, n_layers, d_model, n_heads, d_head, par = line.split(' ')
-        for i in [1, 16]:
-            gen_workload(int(n_heads), int(d_head), int(d_model), int(args.s), int(args.e), args.l, model, i, int(par))
+        model, param_size, n_layers, d_model, n_heads, d_head, TP, PP = line.split(' ')
+        for i in [1, 2, 4, 8, 16]:
+            gen_workload(int(n_heads), int(d_head), int(d_model), int(args.s), int(args.e), args.l, model, i, int(TP))

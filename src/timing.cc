@@ -181,26 +181,41 @@ Timing::Timing(const Config& config)
             {CommandType::READ_PRECHARGE, write_to_read_o},
             {CommandType::WRITE_PRECHARGE, write_to_write_o}};
 
-    // command PIM_READ
-    same_bank[static_cast<int>(CommandType::PIM_READ)] =
+    // command LH_READ
+    same_bank[static_cast<int>(CommandType::LH_READ)] =
         std::vector<std::pair<CommandType, int> >{
-            {CommandType::PIM_READ, read_to_read_s},
-            {CommandType::PIM_WRITE, read_to_write}, // TODO needed?
-            {CommandType::PIM_READ_PRECHARGE, read_to_read_s},
-            {CommandType::PIM_WRITE_PRECHARGE, read_to_write}, // TODO needed?
-            {CommandType::PRECHARGE, read_to_precharge}}; // TODO needed?
+            {CommandType::LH_READ, read_to_read_s},
+            {CommandType::GH_READ, read_to_read_s},
+            {CommandType::PIM_WRITE, read_to_write},
+            {CommandType::LH_READ_PRECHARGE, read_to_read_s},
+            {CommandType::GH_READ_PRECHARGE, read_to_read_s},
+            {CommandType::PIM_WRITE_PRECHARGE, read_to_write},
+            {CommandType::PRECHARGE, read_to_precharge}};
+
+    // command GH_READ
+    same_bank[static_cast<int>(CommandType::GH_READ)] =
+        std::vector<std::pair<CommandType, int> >{
+            {CommandType::LH_READ, read_to_read_s},
+            {CommandType::GH_READ, read_to_read_s},
+            {CommandType::PIM_WRITE, read_to_write},
+            {CommandType::LH_READ_PRECHARGE, read_to_read_s},
+            {CommandType::GH_READ_PRECHARGE, read_to_read_s},
+            {CommandType::PIM_WRITE_PRECHARGE, read_to_write},
+            {CommandType::PRECHARGE, read_to_precharge}};
 
     // command PIM_WRITE
     same_bank[static_cast<int>(CommandType::PIM_WRITE)] =
         std::vector<std::pair<CommandType, int> >{
-            {CommandType::PIM_READ, write_to_read_s}, // TODO
+            {CommandType::LH_READ, write_to_read_s}, // TODO
+            {CommandType::GH_READ, write_to_read_s}, // TODO
             {CommandType::PIM_WRITE, write_to_write_s},
-            {CommandType::PIM_READ_PRECHARGE, write_to_read_l}, // TODO
+            {CommandType::LH_READ_PRECHARGE, write_to_read_l}, // TODO
+            {CommandType::GH_READ_PRECHARGE, write_to_read_l}, // TODO
             {CommandType::PIM_WRITE_PRECHARGE, write_to_write_s},
             {CommandType::PRECHARGE, write_to_precharge}}; // TODO
 
-    // command PIM_READ_PRECHARGE
-    same_bank[static_cast<int>(CommandType::PIM_READ_PRECHARGE)] =
+    // command LH_READ_PRECHARGE
+    same_bank[static_cast<int>(CommandType::LH_READ_PRECHARGE)] =
         std::vector<std::pair<CommandType, int> >{
             {CommandType::ACTIVATE, readp_to_act},
             {CommandType::PIM_ACTIVATE, readp_to_act},
@@ -208,6 +223,14 @@ Timing::Timing(const Config& config)
             {CommandType::REFRESH_BANK, read_to_activate},
             {CommandType::SREF_ENTER, read_to_activate}};
 
+    // command GH_READ_PRECHARGE
+    same_bank[static_cast<int>(CommandType::GH_READ_PRECHARGE)] =
+        std::vector<std::pair<CommandType, int> >{
+            {CommandType::ACTIVATE, readp_to_act},
+            {CommandType::PIM_ACTIVATE, readp_to_act},
+            {CommandType::REFRESH, read_to_activate},
+            {CommandType::REFRESH_BANK, read_to_activate},
+            {CommandType::SREF_ENTER, read_to_activate}};
     // command PIM_WRITE_PRECHARGE
     same_bank[static_cast<int>(CommandType::PIM_WRITE_PRECHARGE)] =
         std::vector<std::pair<CommandType, int> >{
@@ -244,9 +267,11 @@ Timing::Timing(const Config& config)
         std::vector<std::pair<CommandType, int> >{
             {CommandType::ACTIVATE, activate_to_activate},
             {CommandType::PIM_ACTIVATE, activate_to_activate},
-            {CommandType::PIM_READ, activate_to_read},
+            {CommandType::LH_READ, activate_to_read},
+            {CommandType::GH_READ, activate_to_read},
             {CommandType::PIM_WRITE, activate_to_write},
-            {CommandType::PIM_READ_PRECHARGE, activate_to_read},
+            {CommandType::LH_READ_PRECHARGE, activate_to_read},
+            {CommandType::GH_READ_PRECHARGE, activate_to_read},
             {CommandType::PIM_WRITE_PRECHARGE, activate_to_write},
             {CommandType::PRECHARGE, activate_to_precharge},
         };

@@ -11,8 +11,10 @@ BankState::BankState()
     cmd_timing_[static_cast<int>(CommandType::READ_PRECHARGE)] = 0;
     cmd_timing_[static_cast<int>(CommandType::WRITE)] = 0;
     cmd_timing_[static_cast<int>(CommandType::WRITE_PRECHARGE)] = 0;
-    cmd_timing_[static_cast<int>(CommandType::PIM_READ)] = 0;
-    cmd_timing_[static_cast<int>(CommandType::PIM_READ_PRECHARGE)] = 0;
+    cmd_timing_[static_cast<int>(CommandType::LH_READ)] = 0;
+    cmd_timing_[static_cast<int>(CommandType::LH_READ_PRECHARGE)] = 0;
+    cmd_timing_[static_cast<int>(CommandType::GH_READ)] = 0;
+    cmd_timing_[static_cast<int>(CommandType::GH_READ_PRECHARGE)] = 0;
     cmd_timing_[static_cast<int>(CommandType::PIM_WRITE)] = 0;
     cmd_timing_[static_cast<int>(CommandType::PIM_WRITE_PRECHARGE)] = 0;
     cmd_timing_[static_cast<int>(CommandType::ACTIVATE)] = 0;
@@ -35,8 +37,10 @@ Command BankState::GetReadyCommand(const Command& cmd, uint64_t clk) const {
                 case CommandType::WRITE_PRECHARGE:
                     required_type = CommandType::ACTIVATE;
                     break;
-                case CommandType::PIM_READ:
-                case CommandType::PIM_READ_PRECHARGE:
+                case CommandType::LH_READ:
+                case CommandType::LH_READ_PRECHARGE:
+                case CommandType::GH_READ:
+                case CommandType::GH_READ_PRECHARGE:
                 case CommandType::PIM_WRITE:
                 case CommandType::PIM_WRITE_PRECHARGE:
                     required_type = CommandType::PIM_ACTIVATE;
@@ -58,8 +62,10 @@ Command BankState::GetReadyCommand(const Command& cmd, uint64_t clk) const {
                 case CommandType::READ_PRECHARGE:
                 case CommandType::WRITE:
                 case CommandType::WRITE_PRECHARGE:
-                case CommandType::PIM_READ:
-                case CommandType::PIM_READ_PRECHARGE:
+                case CommandType::LH_READ:
+                case CommandType::LH_READ_PRECHARGE:
+                case CommandType::GH_READ:
+                case CommandType::GH_READ_PRECHARGE:
                 case CommandType::PIM_WRITE:
                 case CommandType::PIM_WRITE_PRECHARGE:
                     if (cmd.Row() == open_row_) {
@@ -86,8 +92,10 @@ Command BankState::GetReadyCommand(const Command& cmd, uint64_t clk) const {
                 case CommandType::READ_PRECHARGE:
                 case CommandType::WRITE:
                 case CommandType::WRITE_PRECHARGE:
-                case CommandType::PIM_READ:
-                case CommandType::PIM_READ_PRECHARGE:
+                case CommandType::LH_READ:
+                case CommandType::LH_READ_PRECHARGE:
+                case CommandType::GH_READ:
+                case CommandType::GH_READ_PRECHARGE:
                 case CommandType::PIM_WRITE:
                 case CommandType::PIM_WRITE_PRECHARGE:
                     required_type = CommandType::SREF_EXIT;
@@ -119,13 +127,15 @@ void BankState::UpdateState(const Command& cmd) {
             switch (cmd.cmd_type) {
                 case CommandType::READ:
                 case CommandType::WRITE:
-                case CommandType::PIM_READ:
+                case CommandType::LH_READ:
+                case CommandType::GH_READ:
                 case CommandType::PIM_WRITE:
                     row_hit_count_++;
                     break;
                 case CommandType::READ_PRECHARGE:
                 case CommandType::WRITE_PRECHARGE:
-                case CommandType::PIM_READ_PRECHARGE:
+                case CommandType::LH_READ_PRECHARGE:
+                case CommandType::GH_READ_PRECHARGE:
                 case CommandType::PIM_WRITE_PRECHARGE:
                 case CommandType::PRECHARGE:
                     state_ = State::CLOSED;
@@ -159,8 +169,10 @@ void BankState::UpdateState(const Command& cmd) {
                 case CommandType::WRITE:
                 case CommandType::READ_PRECHARGE:
                 case CommandType::WRITE_PRECHARGE:
-                case CommandType::PIM_READ:
-                case CommandType::PIM_READ_PRECHARGE:
+                case CommandType::LH_READ:
+                case CommandType::LH_READ_PRECHARGE:
+                case CommandType::GH_READ:
+                case CommandType::GH_READ_PRECHARGE:
                 case CommandType::PIM_WRITE:
                 case CommandType::PIM_WRITE_PRECHARGE:
                 case CommandType::PRECHARGE:
@@ -179,8 +191,10 @@ void BankState::UpdateState(const Command& cmd) {
                 case CommandType::WRITE:
                 case CommandType::READ_PRECHARGE:
                 case CommandType::WRITE_PRECHARGE:
-                case CommandType::PIM_READ:
-                case CommandType::PIM_READ_PRECHARGE:
+                case CommandType::LH_READ:
+                case CommandType::LH_READ_PRECHARGE:
+                case CommandType::GH_READ:
+                case CommandType::GH_READ_PRECHARGE:
                 case CommandType::PIM_WRITE:
                 case CommandType::PIM_WRITE_PRECHARGE:
                 case CommandType::ACTIVATE:

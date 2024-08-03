@@ -48,6 +48,7 @@ class Controller {
     std::vector<Command> wr_cmds_;
     std::vector<int> release_time;
     bool wr_multitenant = false;
+    bool in_pim = false;
 
    private:
     uint64_t clk_;
